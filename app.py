@@ -30,9 +30,6 @@ def parse_flexible_time(t_str, base_start=None):
 
 tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
-# ==========================================
-# TAB 1: 15-MIN REGISTER GENERATOR
-# ==========================================
 with tab1:
     st.subheader("15-Min KVAH Reading & Unit")
     col1, col2 = st.columns(2)
@@ -175,13 +172,9 @@ with tab1:
                 else:
                     st.warning(f"⚠️ **Cross-Verify Mismatch:** Aapke total se {diff:+d} units ka farq hai!")
 
-# ==========================================
-# TAB 2: HEAT-BY-HEAT REPORT GENERATOR (ULTRA SIMPLE)
-# ==========================================
 with tab2:
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
-    
     h_col1, h_col2 = st.columns(2)
     with h_col1:
         kw_s_txt = st.text_input("Start kWh Reading", value="160132528", key="kws_t")
@@ -208,10 +201,15 @@ with tab2:
 
     st.markdown("---")
     if st.button("🔥 GENERATE HEAT REPORT", type="primary", use_container_width=True, key="gen_h_btn"):
-        try:
-            kw_s = int(float(kw_s_txt.strip()))
-            kw_e = int(float(kw_e_txt.strip()))
-            kvah_s = int(float(kvah_s_txt.strip()))
-            kvah_e = int(float(kvah_e_txt.strip()))
-        except ValueError:
-            
+        kw_s = int(float(kw_s_txt.strip() or 0))
+        kw_e = int(float(kw_e_txt.strip() or 0))
+        kvah_s = int(float(kvah_s_txt.strip() or 0))
+        kvah_e = int(float(kvah_e_txt.strip() or 0))
+
+        if kw_e <= kw_s or kvah_e <= kvah_s:
+            st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
+        else:
+            tot_kw_u = round(((kw_e - kw_s) / 10.0) * MF)
+            tot_kvah_u = round(((kvah_e - kvah_s) / 10.0) * MF)
+            parsed_heats = []
+                                
