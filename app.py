@@ -28,9 +28,7 @@ def parse_flexible_time(t_str, base_start=None):
             continue
     return None
 
-tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
-
-with tab1:
+def render_register_tab():
     st.subheader("15-Min KVAH Reading & Unit")
     col1, col2 = st.columns(2)
     with col1:
@@ -62,117 +60,120 @@ with tab1:
         with c_col2:
             chg_time = st.text_input("Changeover Time", placeholder="9:30am")
 
-    if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True, key="btn_tab1"):
-        dt_start = parse_flexible_time(t_start_str)
-        dt_end = parse_flexible_time(t_end_str, dt_start) if dt_start else None
+    if not st.button("🚀 Register Table Banayein", type="primary", use_container_width=True, key="btn_tab1"):
+        return
 
-        if not dt_start or not dt_end:
-            st.error("Time format galat hai! Kripya '8:00am' ya '10:30am' jaisa daalein.")
-        elif r_end < r_start:
-            st.error("End Reading Start Reading se kam nahi ho sakti!")
-        else:
-            total_units = int(r_end - r_start)
-            slots = []
-            curr = dt_start
-            while curr < dt_end:
-                nxt = curr + timedelta(minutes=15)
-                if nxt > dt_end:
-                    nxt = dt_end
-                slots.append({"start": curr, "end": nxt, "fur_A": active_A, "fur_B": active_B, "is_tapping": False, "is_changeover": False})
-                curr = nxt
+    dt_start = parse_flexible_time(t_start_str)
+    dt_end = parse_flexible_time(t_end_str, dt_start) if dt_start else None
 
-            if t_input.strip():
-                for t_item in t_input.split(","):
-                    dt_t = parse_flexible_time(t_item, dt_start)
-                    if dt_t:
-                        for s in slots:
-                            if s["start"] <= dt_t < s["end"]:
-                                s["is_tapping"] = True
+    if not dt_start or not dt_end:
+        st.error("Time format galat hai! Kripya '8:00am' ya '10:30am' jaisa daalein.")
+        return
+    if r_end < r_start:
+        st.error("End Reading Start Reading se kam nahi ho sakti!")
+        return
 
-            if bd_fur != "None" and bd_off.strip():
-                dt_off = parse_flexible_time(bd_off, dt_start)
-                dt_on = dt_end if bd_on.strip().upper() == "END" or not bd_on.strip() else parse_flexible_time(bd_on, dt_start)
-                if dt_off and dt_on:
-                    for s in slots:
-                        if s["start"] < dt_on and s["end"] > dt_off:
-                            if bd_fur == "A":
-                                s["fur_A"] = "OFF"
-                            elif bd_fur == "B":
-                                s["fur_B"] = "OFF"
-                            else:
-                                s["fur_A"] = "OFF"
-                                s["fur_B"] = "OFF"
+    total_units = int(r_end - r_start)
+    slots = []
+    curr = dt_start
+    while curr < dt_end:
+        nxt = curr + timedelta(minutes=15)
+        if nxt > dt_end:
+            nxt = dt_end
+        slots.append({"start": curr, "end": nxt, "fur_A": active_A, "fur_B": active_B, "is_tapping": False, "is_changeover": False})
+        curr = nxt
 
-            if chg_type != "None" and chg_time.strip():
-                dt_chg = parse_flexible_time(chg_time, dt_start)
-                if dt_chg:
-                    for s in slots:
-                        if s["start"] >= dt_chg:
-                            if chg_type == "A1 -> A2" and s["fur_A"] != "OFF":
-                                s["fur_A"] = "A2"
-                            elif chg_type == "A2 -> A1" and s["fur_A"] != "OFF":
-                                s["fur_A"] = "A1"
-                            elif chg_type == "B1 -> B2" and s["fur_B"] != "OFF":
-                                s["fur_B"] = "B2"
-                            elif chg_type == "B2 -> B1" and s["fur_B"] != "OFF":
-                                s["fur_B"] = "B1"
-                        if s["start"] <= dt_chg < s["end"]:
-                            s["is_changeover"] = True
+    if t_input.strip():
+        for t_item in t_input.split(","):
+            dt_t = parse_flexible_time(t_item, dt_start)
+            if dt_t:
+                for s in slots:
+                    if s["start"] <= dt_t < s["end"]:
+                        s["is_tapping"] = True
 
-            weights = []
-            prev_w = 0.0
-            for idx, s in enumerate(slots):
-                dur_ratio = ((s["end"] - s["start"]).total_seconds() / 60.0) / 15.0
-                a_off, b_off = (s["fur_A"] == "OFF"), (s["fur_B"] == "OFF")
-                if a_off and b_off:
-                    w = random.uniform(0.05, 0.12)
-                elif a_off or b_off:
-                    w = random.uniform(0.32, 0.44) if s["is_tapping"] else random.uniform(0.48, 0.72)
-                else:
-                    if s["is_tapping"]:
-                        w = random.uniform(0.62, 0.78)
-                    elif s["is_changeover"]:
-                        w = random.uniform(0.58, 0.76)
+    if bd_fur != "None" and bd_off.strip():
+        dt_off = parse_flexible_time(bd_off, dt_start)
+        dt_on = dt_end if bd_on.strip().upper() == "END" or not bd_on.strip() else parse_flexible_time(bd_on, dt_start)
+        if dt_off and dt_on:
+            for s in slots:
+                if s["start"] < dt_on and s["end"] > dt_off:
+                    if bd_fur == "A":
+                        s["fur_A"] = "OFF"
+                    elif bd_fur == "B":
+                        s["fur_B"] = "OFF"
                     else:
-                        bands = [(0.82, 0.96), (1.04, 1.22), (1.28, 1.48)]
-                        w = random.uniform(*bands[idx % 3])
-                        if abs(w - prev_w) < 0.10:
-                            w += 0.14 if w < 1.25 else -0.15
-                prev_w = w
-                weights.append(w * dur_ratio)
+                        s["fur_A"] = "OFF"
+                        s["fur_B"] = "OFF"
 
-            tot_w = sum(weights)
-            readings = [int(r_start)]
-            curr_r = int(r_start)
-            for i in range(len(slots)):
-                if i == len(slots) - 1:
-                    next_r = int(r_end)
-                else:
-                    next_r = curr_r + round((weights[i] / tot_w) * total_units)
-                readings.append(next_r)
-                curr_r = next_r
+    if chg_type != "None" and chg_time.strip():
+        dt_chg = parse_flexible_time(chg_time, dt_start)
+        if dt_chg:
+            for s in slots:
+                if s["start"] >= dt_chg:
+                    if chg_type == "A1 -> A2" and s["fur_A"] != "OFF":
+                        s["fur_A"] = "A2"
+                    elif chg_type == "A2 -> A1" and s["fur_A"] != "OFF":
+                        s["fur_A"] = "A1"
+                    elif chg_type == "B1 -> B2" and s["fur_B"] != "OFF":
+                        s["fur_B"] = "B2"
+                    elif chg_type == "B2 -> B1" and s["fur_B"] != "OFF":
+                        s["fur_B"] = "B1"
+                if s["start"] <= dt_chg < s["end"]:
+                    s["is_changeover"] = True
 
-            rows = [{"Time": dt_start.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(r_start)), "Unit": "-", "Status": f"{active_A}+{active_B} (Start)"}]
-            tot_sum = 0
-            for i, s in enumerate(slots):
-                u_val = readings[i + 1] - readings[i]
-                tot_sum += u_val
-                st_txt = f"{s['fur_A']}+{s['fur_B']}"
-                if s["is_tapping"]:
-                    st_txt += " (Tap)"
-                rows.append({"Time": s['end'].strftime('%I:%M %p').lstrip('0'), "KVAH": str(readings[i + 1]), "Unit": str(u_val), "Status": st_txt})
+    weights = []
+    prev_w = 0.0
+    for idx, s in enumerate(slots):
+        dur_ratio = ((s["end"] - s["start"]).total_seconds() / 60.0) / 15.0
+        a_off, b_off = (s["fur_A"] == "OFF"), (s["fur_B"] == "OFF")
+        if a_off and b_off:
+            w = random.uniform(0.05, 0.12)
+        elif a_off or b_off:
+            w = random.uniform(0.32, 0.44) if s["is_tapping"] else random.uniform(0.48, 0.72)
+        elif s["is_tapping"]:
+            w = random.uniform(0.62, 0.78)
+        elif s["is_changeover"]:
+            w = random.uniform(0.58, 0.76)
+        else:
+            bands = [(0.82, 0.96), (1.04, 1.22), (1.28, 1.48)]
+            w = random.uniform(*bands[idx % 3])
+            if abs(w - prev_w) < 0.10:
+                w += 0.14 if w < 1.25 else -0.15
+        prev_w = w
+        weights.append(w * dur_ratio)
 
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            st.success(f"**Total Reading Units:** {tot_sum}")
-            if user_check > 0:
-                diff = tot_sum - int(user_check)
-                if diff == 0:
-                    st.info(f"✅ **Cross-Verify:** 100% EXACT MATCH ({user_check})")
-                else:
-                    st.warning(f"⚠️ **Cross-Verify Mismatch:** Aapke total se {diff:+d} units ka farq hai!")
+    tot_w = sum(weights)
+    readings = [int(r_start)]
+    curr_r = int(r_start)
+    for i in range(len(slots)):
+        if i == len(slots) - 1:
+            next_r = int(r_end)
+        else:
+            next_r = curr_r + round((weights[i] / tot_w) * total_units)
+        readings.append(next_r)
+        curr_r = next_r
 
-with tab2:
+    rows = [{"Time": dt_start.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(r_start)), "Unit": "-", "Status": f"{active_A}+{active_B} (Start)"}]
+    tot_sum = 0
+    for i, s in enumerate(slots):
+        u_val = readings[i + 1] - readings[i]
+        tot_sum += u_val
+        st_txt = f"{s['fur_A']}+{s['fur_B']}"
+        if s["is_tapping"]:
+            st_txt += " (Tap)"
+        rows.append({"Time": s['end'].strftime('%I:%M %p').lstrip('0'), "KVAH": str(readings[i + 1]), "Unit": str(u_val), "Status": st_txt})
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.success(f"**Total Reading Units:** {tot_sum}")
+    if user_check > 0:
+        diff = tot_sum - int(user_check)
+        if diff == 0:
+            st.info(f"✅ **Cross-Verify:** 100% EXACT MATCH ({user_check})")
+        else:
+            st.warning(f"⚠️ **Cross-Verify Mismatch:** Aapke total se {diff:+d} units ka farq hai!")
+
+def render_heat_tab():
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
     h_col1, h_col2 = st.columns(2)
@@ -200,16 +201,35 @@ with tab2:
         heat_inputs.append((i, ht, ton, ttap, bd_txt))
 
     st.markdown("---")
-    if st.button("🔥 GENERATE HEAT REPORT", type="primary", use_container_width=True, key="gen_h_btn"):
-        kw_s = int(float(kw_s_txt.strip() or 0))
-        kw_e = int(float(kw_e_txt.strip() or 0))
-        kvah_s = int(float(kvah_s_txt.strip() or 0))
-        kvah_e = int(float(kvah_e_txt.strip() or 0))
+    st.button("🔄 Naye Random Numbers Banayein", type="primary", use_container_width=True, key="recalc_h")
 
-        if kw_e <= kw_s or kvah_e <= kvah_s:
-            st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
-        else:
-            tot_kw_u = round(((kw_e - kw_s) / 10.0) * MF)
-            tot_kvah_u = round(((kvah_e - kvah_s) / 10.0) * MF)
-            parsed_heats = []
-                                
+    kw_s = int(float(kw_s_txt.strip())) if kw_s_txt.strip().isdigit() else 0
+    kw_e = int(float(kw_e_txt.strip())) if kw_e_txt.strip().isdigit() else 0
+    kvah_s = int(float(kvah_s_txt.strip())) if kvah_s_txt.strip().isdigit() else 0
+    kvah_e = int(float(kvah_e_txt.strip())) if kvah_e_txt.strip().isdigit() else 0
+
+    if kw_e <= kw_s or kvah_e <= kvah_s:
+        st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
+        return
+
+    tot_kw_u = round(((kw_e - kw_s) / 10.0) * MF)
+    tot_kvah_u = round(((kvah_e - kvah_s) / 10.0) * MF)
+    parsed_heats = []
+    first_dt = None
+
+    for i, ht, ton, ttap, bd_txt in heat_inputs:
+        dt_on = parse_flexible_time(ton, first_dt)
+        if i == 1:
+            first_dt = dt_on
+        dt_tap = parse_flexible_time(ttap, dt_on) if dt_on else None
+        if not dt_on or not dt_tap:
+            st.warning(f"⚠️ Heat #{i} ka time ('{ton}' ya '{ttap}') sahi format mein daalein (jaise 8:00am).")
+            return
+        clean_bd = bd_txt.strip()
+        bdm = float(clean_bd) if clean_bd.isdigit() else 0.0
+        dur = (dt_tap - dt_on).total_seconds() / 60.0
+        if dur <= 0:
+            dur = 60.0
+        act = max(5.0, dur - bdm)
+        mult = 0.72 if ht == "Sintering" else 1.0
+                              
