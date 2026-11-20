@@ -29,7 +29,7 @@ def gf(v, df=16.5):
     try: return float(s) if s else df
     except: return df
 
-t1, t2 = st.tabs(["📋 15-Min Register", "🔥 16.5T Heat Report"])
+t1, t2 = st.tabs(["📋 15-Min Register", "🔥 Heat by Heat Report"])
 
 with t1:
     c1, c2 = st.columns(2)
