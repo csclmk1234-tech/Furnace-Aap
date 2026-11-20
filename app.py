@@ -28,6 +28,10 @@ def parse_flexible_time(t_str, base_start=None):
             continue
     return None
 
+def clean_num(val_str):
+    digits = "".join(ch for ch in str(val_str) if ch.isdigit())
+    return int(digits) if digits else 0
+
 tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
 # ==========================================
@@ -180,6 +184,7 @@ with tab1:
 with tab2:
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
+    
     h_col1, h_col2 = st.columns(2)
     with h_col1:
         kw_s_txt = st.text_input("Start kWh Reading", value="160132528", key="kws_t")
@@ -204,10 +209,13 @@ with tab2:
             bd_txt = st.text_input("BD(m)", value="0", key=f"bd_{i}")
         heat_inputs.append((i, ht, ton, ttap, bd_txt))
 
-    st.markdown("---")
-    st.button("🔄 Naye Random Numbers Banayein", type="primary", use_container_width=True, key="recalc_h")
+    st.markdown("### 📊 Generated Heat Report:")
 
-    kw_s = int(float(kw_s_txt.strip())) if kw_s_txt.strip().isdigit() else 0
-    kw_e = int(float(kw_e_txt.strip())) if kw_e_txt.strip().isdigit() else 0
-    kvah_s = int(float(kvah_s_txt.strip())) if kvah_s_txt.strip().isdigit() else 0
-                
+    kw_s = clean_num(kw_s_txt)
+    kw_e = clean_num(kw_e_txt)
+    kvah_s = clean_num(kvah_s_txt)
+    kvah_e = clean_num(kvah_e_txt)
+
+    if kw_e <= kw_s or kvah_e <= kvah_s:
+        st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
+        
