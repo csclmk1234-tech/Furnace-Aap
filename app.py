@@ -2,7 +2,7 @@ import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="16.5T Furnace App", page_icon="⚡")
-st.title("⚡ My Load Maneger Furnace App")
+st.title("⚡ My Load Manager Log Furnace App")
 
 def pt(s, b=None):
     if not s: return None
@@ -108,7 +108,7 @@ with t1:
             if uc > 0: st.info("✅ MATCH!" if tu == int(uc) else f"⚠️ Farq: {tu-int(uc):+d}")
 
 with t2:
-    st.caption("⚡ 5800 kW Load | Melting Tonnage × Condition (593 / 698 / 768 u/T)")
+    st.caption("⚡ Units = Melting Ton × Target u/Ton | Long Heat (>2.5h), CCM Hold, GLD & Sintering Auto-PF")
     rm = st.radio("Reading Mode:", ["Direct (Diff × 8)", "Decimal ((Diff ÷ 10) × 8)"], horizontal=True)
     h1, h2 = st.columns(2)
     ks, vs = gn(h1.text_input("Start kWh", "16013252")), gn(h1.text_input("Start kVAh", "16891404"))
@@ -117,15 +117,21 @@ with t2:
     hl = []
     for i in range(1, int(nh) + 1):
         st.markdown(f"**Heat #{i}**")
-        r1, r2 = st.columns([1.4, 1])
-        ht = r1.selectbox("Condition", ["Normal (~698 u/T)", "Fast/Hot (~593 u/T)", "Heavy/Slow (~768 u/T)", "Sintering"], key=f"t_{i}")
-        gc = r2.checkbox("⚡ GLD / Trip?", key=f"g_{i}")
+        r1, r2, r3 = st.columns(3)
+        ht = r1.selectbox("Heat Type", ["Normal", "Sintering"], key=f"ht_{i}")
+        ut_sel = r2.selectbox("Target u/Ton", ["Auto (698)", "Fast (593)", "Heavy (768)", "Custom"], key=f"ut_{i}")
+        ton_m = gf(r3.text_input("Melt (Ton)", "16.5", key=f"m_{i}"), 16.5)
+
         x1, x2, x3, x4 = st.columns(4)
-        ton_m = gf(x1.text_input("Melt (Ton)", "16.5", key=f"m_{i}"), 16.5)
-        on_t = x2.text_input("ON", "8:00am", key=f"o_{i}")
-        tp_t = x3.text_input("TAP", "10:00am", key=f"p_{i}")
+        on_t = x1.text_input("ON", "8:00am", key=f"o_{i}")
+        tp_t = x2.text_input("TAP", "10:00am", key=f"p_{i}")
+        ccm_m = gn(x3.text_input("CCM Hold(m)", "0", key=f"c_{i}"))
         bd_m = gn(x4.text_input("BD(m)", "0", key=f"b_{i}"))
-        hl.append((i, ht, gc, ton_m, on_t, tp_t, bd_m))
+
+        gc1, gc2 = st.columns(2)
+        gc = gc1.checkbox("⚡ GLD / Trip?", key=f"g_{i}")
+        cust_ut = gf(gc2.text_input("Custom u/T", "698", key=f"cu_{i}"), 698.0) if ut_sel == "Custom" else 0.0
+        hl.append((i, ht, ut_sel, cust_ut, ton_m, on_t, tp_t, ccm_m, bd_m, gc))
 
     st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
     dv = 10.0 if "Decimal" in rm else 1.0
@@ -134,62 +140,103 @@ with t2:
         st.error("Reading check karein! (End > Start aur kWh Diff < kVAh Diff hona chahiye)")
     else:
         ph, fd, ok = [], None, 1
-        for i, ht, gc, tm_ton, on, tp2, bm in hl:
+        for i, ht, ut_s, c_ut, tm_ton, on, tp2, ccm, bm, gc in hl:
             d1 = pt(on, fd)
             if i == 1: fd = d1
             d2 = pt(tp2, d1) if d1 else None
             if not d1 or not d2: st.warning(f"Heat #{i} time galat!"); ok = 0; break
-            tm = (d2 - d1).total_seconds() / 60.0
-            if tm <= 0: tm = 120.0
-            rm_m = max(15.0, tm - bm)
-            if "593" in ht: ut = random.uniform(585, 612)
-            elif "768" in ht: ut = random.uniform(748, 778)
-            elif "Sintering" in ht: ut = random.uniform(785, 845)
-            else: ut = random.uniform(682, 712)
-            if gc: ut += random.uniform(25, 45)
-            # Actual Melting Tonnage x u/T + 5800kW Running Time blend
-            kw_t = (tm_ton * ut * 0.75) + (((rm_m / 60.0) * 5650.0) * 0.25) + (bm * 6.0)
-            if "Sintering" in ht and gc: pfr, lb = (0.800, 0.855), "Sint+GLD"
-            elif "Sintering" in ht: pfr, lb = (0.810, 0.890), "Sintering"
-            elif gc: pfr, lb = (0.865, 0.915), "GLD"
-            else: pfr, lb = (0.945, 0.988), ht.split()[0]
-            ph.append({"n": i, "h": lb, "ton": tm_ton, "t": d2, "ekw": kw_t, "ekv": kw_t / random.uniform(*pfr), "pfr": pfr})
+            dur_m = (d2 - d1).total_seconds() / 60.0
+            if dur_m <= 0: dur_m = 120.0
+
+            # 1. Kwh Units STRICTLY Melting Ton x u/Ton ke hisab se (chahe 3hr mein 12T ho)
+            if ut_s == "Custom": base_ut = random.uniform(c_ut - 8, c_ut + 8)
+            elif "593" in ut_s: base_ut = random.uniform(586, 608)
+            elif "768" in ut_s: base_ut = random.uniform(752, 778)
+            elif ht == "Sintering": base_ut = random.uniform(775, 830)
+            else: base_ut = random.uniform(685, 712)
+
+            # CCM Holding mein holding power ka halka unit judega
+            est_kwh = (tm_ton * base_ut) + (ccm * 14.0) + (bm * 5.0)
+
+            # 2. Power Factor Logic: Sintering, GLD, CCM Hold, aur Long Heat (>155m / 3hr low ton)
+            pf_hi = 0.986
+            pf_lo = 0.948
+            tags = []
+            if ht == "Sintering":
+                pf_lo, pf_hi = 0.805, 0.885
+            else:
+                if dur_m >= 155 or (dur_m >= 135 and tm_ton <= 13.5):
+                    pf_lo -= 0.055; pf_hi -= 0.045; tags.append("Long")
+                if ccm >= 10:
+                    drop = min(0.065, (ccm / 60.0) * 0.055)
+                    pf_lo -= drop; pf_hi -= drop; tags.append("CCM-Hold")
+            if gc:
+                pf_lo -= 0.045; pf_hi -= 0.040; tags.append("GLD")
+
+            pf_lo = max(0.785, pf_lo)
+            pf_hi = max(pf_lo + 0.025, min(0.992, pf_hi))
+            t_pf = random.uniform(pf_lo, pf_hi)
+            rem_str = "+".join(tags) if tags else "Clean"
+            ph.append({"n": i, "ht": ht, "rem": rem_str, "ton": tm_ton, "dur": int(dur_m), "t": d2, "ekw": est_kwh, "ekv": est_kwh / t_pf, "pfr": (pf_lo, pf_hi)})
 
         if ok and ph:
-            sk, sv = tk / sum(x["ekw"] for x in ph), tv / sum(x["ekv"] for x in ph)
+            sk = tk / sum(x["ekw"] for x in ph)
+            sv = tv / sum(x["ekv"] for x in ph)
             for x in ph:
-                x["vs"] = max(10, round(x["ekv"] * sv))
+                x["ks"] = max(8, round(x["ekw"] * sk))
                 lo, hi = x["pfr"]
-                x["ks"] = max(round(x["vs"] * lo), min(round(x["vs"] * hi), round(x["ekw"] * sk)))
-            dvs = tv - sum(x["vs"] for x in ph)
+                v_raw = round(x["ekv"] * sv)
+                v_min = max(x["ks"] + 1, round(x["ks"] / hi))
+                v_max = max(v_min, round(x["ks"] / lo))
+                x["vs"] = max(v_min, min(v_max, v_raw))
+
+            # Exact kWh balance (8 factor steps)
+            dks = tk - sum(x["ks"] for x in ph)
             for _ in range(30000):
+                if dks == 0: break
+                ix = random.randrange(len(ph))
+                st_k = 1 if dks > 0 else -1
+                if 8 <= ph[ix]["ks"] + st_k < int(ph[ix]["vs"] * 0.994):
+                    ph[ix]["ks"] += st_k; dks -= st_k
+
+            # Exact kVAh balance keeping each heat's PF strictly inside situation range (< 0.995)
+            dvs = tv - sum(x["vs"] for x in ph)
+            for _ in range(40000):
                 if dvs == 0: break
                 ix = random.randrange(len(ph))
-                st_v = 1 if dvs > 0 else -1
-                if ph[ix]["vs"] + st_v > ph[ix]["ks"] + 1: ph[ix]["vs"] += st_v; dvs -= st_v
-            dks = tk - sum(x["ks"] for x in ph)
-            for _ in range(40000):
-                if dks == 0: break
-                ix = random.randrange(len(ph))
                 lo, hi = ph[ix]["pfr"]
-                mn, mx = max(1, round(ph[ix]["vs"] * lo)), min(ph[ix]["vs"] - 1, round(ph[ix]["vs"] * hi))
-                if dks > 0 and ph[ix]["ks"] < mx: ph[ix]["ks"] += 1; dks -= 1
-                elif dks < 0 and ph[ix]["ks"] > mn: ph[ix]["ks"] -= 1; dks += 1
+                v_mn = max(ph[ix]["ks"] + 1, round(ph[ix]["ks"] / hi))
+                v_mx = max(v_mn, round(ph[ix]["ks"] / lo))
+                if dvs > 0 and ph[ix]["vs"] < v_mx: ph[ix]["vs"] += 1; dvs -= 1
+                elif dvs < 0 and ph[ix]["vs"] > v_mn: ph[ix]["vs"] -= 1; dvs += 1
             for _ in range(40000):
-                if dks == 0: break
+                if dvs == 0: break
                 ix = random.randrange(len(ph))
-                hmx, hmn = max(1, int(ph[ix]["vs"] * 0.994)), max(1, int(ph[ix]["vs"] * 0.760))
-                if dks > 0 and ph[ix]["ks"] < hmx: ph[ix]["ks"] += 1; dks -= 1
-                elif dks < 0 and ph[ix]["ks"] > hmn: ph[ix]["ks"] -= 1; dks += 1
+                h_mn = max(ph[ix]["ks"] + 1, int(ph[ix]["ks"] / 0.994))
+                h_mx = max(h_mn, int(ph[ix]["ks"] / 0.760))
+                if dvs > 0 and ph[ix]["vs"] < h_mx: ph[ix]["vs"] += 1; dvs -= 1
+                elif dvs < 0 and ph[ix]["vs"] > h_mn: ph[ix]["vs"] -= 1; dvs += 1
 
             tot_ton = sum(x["ton"] for x in ph)
-            st.success(f"✅ Total Melt: {tot_ton:.2f} T | Kwh: {tk*8} ({round((tk*8)/tot_ton)} u/T) | Kvah: {tv*8} | Pf: {(tk/tv):.3f}")
+            st.success(f"✅ Total Melt: {tot_ton:.2f} T | Kwh: {tk*8} ({round((tk*8)/tot_ton)} u/T) | Kvah: {tv*8} | Overall Pf: {(tk/tv):.3f}")
             hr, txt = [], ""
             for x in ph:
                 ku, vu = x["ks"] * 8, x["vs"] * 8
-                pf, tc = (ku / vu if vu > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
-                hr.append({"Heat": f"#{x['n']} ({x['h']})", "Ton": x["ton"], "TAP": tc, "u/Ton": round(ku / x["ton"]), "Kwh": ku, "Kvah": vu, "PF": f"{pf:.3f}"})
-                txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nMelting Ton      : {x['ton']} T\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf:.3f}\n\n"
+                pf = ku / vu if vu > 0 else 0
+                tc = x["t"].strftime('%I:%M %p').lstrip('0')
+                ut_val = round(ku / x["ton"]) if x["ton"] > 0 else 0
+                hr.append({
+                    "Heat": f"#{x['n']}",
+                    "Heat Type": x["ht"],
+                    "Status": x["rem"],
+                    "Melt(T)": x["ton"],
+                    "u/Ton": ut_val,
+                    "TAP": tc,
+                    "Kwh": ku,
+                    "Kvah": vu,
+                    "PF": f"{pf:.3f}"
+                })
+                txt += f"--- Heat #{x['n']} ({x['ht']}) ---\nHeat Taping Time : {tc}\nMelting Ton      : {x['ton']} T ({ut_val} u/T)\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf:.3f}\n\n"
             st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
             st.code(txt.strip(), language=None)
     st.markdown("<br><br><br>", unsafe_allow_html=True)
