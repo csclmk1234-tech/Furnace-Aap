@@ -46,8 +46,7 @@ with tab1:
         r_end = st.number_input("End KVAH Reading", value=249775482, step=1, format="%d", key="r1_end")
         active_B = st.selectbox("B-Line Furnace", ["B1", "B2"], index=1, key="fur_b")
 
-    user_check = st.number_input("Cross-Verify Total Unit (Optional - 0 chhod dein agar nahi dalna)", value=0, step=1, format="%d")
-    
+    user_check = st.number_input("Cross-Verify Total Unit (Optional - 0 chhod dein)", value=0, step=1, format="%d")
     t_input = st.text_input("Tapping Times (comma lagakar daalein)", placeholder="jaise: 8:25am, 9:45am")
 
     with st.expander("➕ Breakdown (OFF/ON), Changeover ya Low Load Add Karein"):
@@ -67,7 +66,7 @@ with tab1:
         with c_col2:
             chg_time = st.text_input("Changeover Time", placeholder="9:30am")
 
-    if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True):
+    if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True, key="btn_tab1"):
         dt_start = parse_flexible_time(t_start_str)
         dt_end = parse_flexible_time(t_end_str, dt_start) if dt_start else None
 
@@ -90,7 +89,6 @@ with tab1:
                 })
                 curr = nxt
 
-            # Tapping update
             if t_input.strip():
                 for t_item in t_input.split(","):
                     dt_t = parse_flexible_time(t_item, dt_start)
@@ -99,7 +97,6 @@ with tab1:
                             if s["start"] <= dt_t < s["end"]:
                                 s["is_tapping"] = True
 
-            # Breakdown update
             if bd_fur != "None" and bd_off.strip():
                 dt_off = parse_flexible_time(bd_off, dt_start)
                 dt_on = dt_end if bd_on.strip().upper() == "END" or not bd_on.strip() else parse_flexible_time(bd_on, dt_start)
@@ -112,7 +109,6 @@ with tab1:
                                 s["fur_A"] = "OFF"
                                 s["fur_B"] = "OFF"
 
-            # Changeover update
             if chg_type != "None" and chg_time.strip():
                 dt_chg = parse_flexible_time(chg_time, dt_start)
                 if dt_chg:
@@ -125,7 +121,6 @@ with tab1:
                         if s["start"] <= dt_chg < s["end"]:
                             s["is_changeover"] = True
 
-            # Weights calculation
             weights = []
             prev_w = 0.0
             for idx, s in enumerate(slots):
@@ -159,7 +154,6 @@ with tab1:
                 readings.append(next_r)
                 curr_r = next_r
 
-            # Table DataFrame taiyar karna
             rows = [{
                 "Time": dt_start.strftime('%I:%M %p').lstrip('0'),
                 "KVAH": str(int(r_start)),
@@ -205,6 +199,9 @@ with tab2:
         kvah_e = st.number_input("End kVAh Reading", value=1357000, step=1, format="%d")
 
     num_heats = st.number_input("Kitni Heats hain?", min_value=1, max_value=20, value=3, step=1)
+    
+    # Upar wala Calculate Button (taaki neeche scroll na karna pade)
+    btn_top = st.button("🔥 Heat Report Banayein", type="primary", use_container_width=True, key="btn_heat_top")
     
     heat_inputs = []
     for i in range(1, int(num_heats) + 1):
