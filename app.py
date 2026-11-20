@@ -47,7 +47,7 @@ with tab1:
     u_chk = st.number_input("Cross-Verify Total (Optional)", value=0, step=1, format="%d")
     tap_in = st.text_input("Tapping Times (comma lagayein)", placeholder="8:25am, 9:45am")
 
-    with st.expander("➕ Breakdown / Changeover"):
+    with st.expander("➕ Breakdown / Changeover / GLD"):
         bc1, bc2, bc3 = st.columns(3)
         bd_f = bc1.selectbox("OFF Fur", ["None", "A", "B", "BOTH"])
         bd_s = bc2.text_input("OFF Time")
@@ -55,6 +55,9 @@ with tab1:
         cc1, cc2 = st.columns(2)
         ch_t = cc1.selectbox("Changeover", ["None", "A1->A2", "A2->A1", "B1->B2", "B2->B1"])
         ch_tm = cc2.text_input("Chg Time")
+        gc1, gc2 = st.columns(2)
+        gld_s = gc1.text_input("GLD Start Time", placeholder="9:00am")
+        gld_e = gc2.text_input("GLD End Time", placeholder="9:45am")
 
     if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True):
         ds = parse_time(t1_s)
@@ -66,7 +69,7 @@ with tab1:
             slots, curr = [], ds
             while curr < de:
                 nxt = min(curr + timedelta(minutes=15), de)
-                slots.append({"s": curr, "e": nxt, "a": f_a, "b": f_b, "tap": False, "chg": False})
+                slots.append({"s": curr, "e": nxt, "a": f_a, "b": f_b, "tap": False, "chg": False, "gld": False})
                 curr = nxt
             for ti in tap_in.split(","):
                 dt_t = parse_time(ti, ds)
@@ -91,6 +94,12 @@ with tab1:
                             elif ch_t == "B1->B2" and s["b"] != "OFF": s["b"] = "B2"
                             elif ch_t == "B2->B1" and s["b"] != "OFF": s["b"] = "B1"
                         if s["s"] <= dc < s["e"]: s["chg"] = True
+            if gld_s.strip() and gld_e.strip():
+                dgs = parse_time(gld_s, ds)
+                dge = parse_time(gld_e, ds)
+                if dgs and dge:
+                    for s in slots:
+                        if s["s"] < dge and s["e"] > dgs: s["gld"] = True
 
             wts, pw = [], 0.0
             for idx, s in enumerate(slots):
@@ -98,6 +107,7 @@ with tab1:
                 ao, bo = (s["a"] == "OFF"), (s["b"] == "OFF")
                 if ao and bo: w = random.uniform(0.05, 0.12)
                 elif ao or bo: w = random.uniform(0.32, 0.44) if s["tap"] else random.uniform(0.48, 0.72)
+                elif s["gld"]: w = random.uniform(0.50, 0.85)
                 elif s["tap"]: w = random.uniform(0.62, 0.78)
                 elif s["chg"]: w = random.uniform(0.58, 0.76)
                 else:
@@ -115,7 +125,9 @@ with tab1:
 
             rows = [{"Time": ds.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(r1_s)), "Unit": "-", "Status": f"{f_a}+{f_b}"}]
             for i, s in enumerate(slots):
-                st_lb = f"{s['a']}+{s['b']}" + (" (Tap)" if s["tap"] else "")
+                st_lb = f"{s['a']}+{s['b']}"
+                if s["gld"]: st_lb += " (GLD)"
+                elif s["tap"]: st_lb += " (Tap)"
                 rows.append({"Time": s["e"].strftime('%I:%M %p').lstrip('0'), "KVAH": str(rds[i+1]), "Unit": str(rds[i+1]-rds[i]), "Status": st_lb})
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             st.success(f"Total Units: {tot_u}")
@@ -132,7 +144,6 @@ with tab2:
     kvahe_t = hc2.text_input("End kVAh", "168962656")
     n_h = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2)
 
-    # SABSE UPAR BUTTON AUR REPORT BOX!
     gen_btn = st.button("🔥 GENERATE HEAT REPORT", type="primary", use_container_width=True)
     rep_spot = st.container()
     st.markdown("---")
@@ -140,14 +151,13 @@ with tab2:
     h_list = []
     for i in range(1, int(n_h) + 1):
         st.markdown(f"**Heat #{i}**")
-        x1, x2, x3, x4 = st.columns([1.2, 1, 1, 0.8])
-        ht = x1.selectbox("Type", ["Normal", "Sintering"], key=f"t_{i}")
+        x1, x2, x3, x4 = st.columns([1.3, 1, 1, 0.7])
+        ht = x1.selectbox("Type", ["Normal", "Sintering", "GLD / Tripping"], key=f"t_{i}")
         ton = x2.text_input("ON", "8:00am", key=f"o_{i}")
         ttap = x3.text_input("TAP", "10:00am", key=f"p_{i}")
         bd = x4.text_input("BD(m)", "0", key=f"b_{i}")
         h_list.append((i, ht, ton, ttap, bd))
 
-    # Button dabao ya bina dabaye auto-report UPAR dikhegi!
     kws, kwe = get_num(kws_t), get_num(kwe_t)
     kvs, kve = get_num(kvahs_t), get_num(kvahe_t)
     with rep_spot:
@@ -167,7 +177,13 @@ with tab2:
                     break
                 bdm = float(get_num(bd))
                 dur = max(60.0, (dtp - don).total_seconds() / 60.0) if (dtp - don).total_seconds() <= 0 else (dtp - don).total_seconds() / 60.0
-                w = ((max(5.0, dur - bdm) * (0.72 if ht == "Sintering" else 1.0)) + (bdm * 0.5)) * random.uniform(0.96, 1.04)
+                if ht == "Sintering":
+                    mult, var = 0.72, random.uniform(0.96, 1.04)
+                elif ht == "GLD / Tripping":
+                    mult, var = 0.78, random.uniform(0.88, 1.08)
+                else:
+                    mult, var = 1.0, random.uniform(0.96, 1.04)
+                w = ((max(5.0, dur - bdm) * mult) + (bdm * 0.5)) * var
                 ph.append({"no": i, "ht": ht, "tap": dtp, "w": w})
 
             if ok and ph:
@@ -180,7 +196,11 @@ with tab2:
                     if x["ht"] == "Sintering":
                         x["kwu"] = round(x["kvu"] * random.uniform(0.800, 0.900))
                         rkw -= x["kwu"]
-                    else: nidx.append(idx)
+                    elif x["ht"] == "GLD / Tripping":
+                        x["kwu"] = round(x["kvu"] * random.uniform(0.860, 0.925))
+                        rkw -= x["kwu"]
+                    else:
+                        nidx.append(idx)
                 if not nidx: ph[-1]["kwu"] += rkw
                 else:
                     nw = [ph[j]["kvu"] * random.uniform(0.985, 1.015) for j in nidx]
@@ -194,7 +214,4 @@ with tab2:
                 out_txt = ""
                 for x in ph:
                     pf = x["kwu"] / x["kvu"] if x["kvu"] > 0 else 0.0
-                    tc = x["tap"].strftime('%I:%M %p').lstrip('0')
-                    out_txt += f"--- Heat #{x['no']} ---\nHeat Taping Time : {tc}\nKwh units        : {x['kwu']}\nKvah units       : {x['kvu']}\nPf.              : {pf:.3f}\n\n"
-                st.code(out_txt.strip(), language=None)
-                                                               
+    
