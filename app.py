@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 st.set_page_config(page_title="Furnace Log & Meter App", page_icon="⚡", layout="centered")
-
 st.title("⚡ Furnace Log & Meter App")
 st.caption("15-Min KVAH Register & Heat-by-Heat Units Generator")
 
@@ -31,12 +30,8 @@ def parse_flexible_time(t_str, base_start=None):
 
 tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
-# ==========================================
-# TAB 1: 15-MIN REGISTER GENERATOR
-# ==========================================
 with tab1:
     st.subheader("15-Min KVAH Reading & Unit")
-    
     col1, col2 = st.columns(2)
     with col1:
         t_start_str = st.text_input("Start Time", value="8:00am", key="t1_start")
@@ -83,11 +78,7 @@ with tab1:
                 nxt = curr + timedelta(minutes=15)
                 if nxt > dt_end:
                     nxt = dt_end
-                slots.append({
-                    "start": curr, "end": nxt,
-                    "fur_A": active_A, "fur_B": active_B,
-                    "is_tapping": False, "is_changeover": False
-                })
+                slots.append({"start": curr, "end": nxt, "fur_A": active_A, "fur_B": active_B, "is_tapping": False, "is_changeover": False})
                 curr = nxt
 
             if t_input.strip():
@@ -104,8 +95,10 @@ with tab1:
                 if dt_off and dt_on:
                     for s in slots:
                         if s["start"] < dt_on and s["end"] > dt_off:
-                            if bd_fur == "A": s["fur_A"] = "OFF"
-                            elif bd_fur == "B": s["fur_B"] = "OFF"
+                            if bd_fur == "A":
+                                s["fur_A"] = "OFF"
+                            elif bd_fur == "B":
+                                s["fur_B"] = "OFF"
                             else:
                                 s["fur_A"] = "OFF"
                                 s["fur_B"] = "OFF"
@@ -115,10 +108,14 @@ with tab1:
                 if dt_chg:
                     for s in slots:
                         if s["start"] >= dt_chg:
-                            if chg_type == "A1 -> A2" and s["fur_A"] != "OFF": s["fur_A"] = "A2"
-                            elif chg_type == "A2 -> A1" and s["fur_A"] != "OFF": s["fur_A"] = "A1"
-                            elif chg_type == "B1 -> B2" and s["fur_B"] != "OFF": s["fur_B"] = "B2"
-                            elif chg_type == "B2 -> B1" and s["fur_B"] != "OFF": s["fur_B"] = "B1"
+                            if chg_type == "A1 -> A2" and s["fur_A"] != "OFF":
+                                s["fur_A"] = "A2"
+                            elif chg_type == "A2 -> A1" and s["fur_A"] != "OFF":
+                                s["fur_A"] = "A1"
+                            elif chg_type == "B1 -> B2" and s["fur_B"] != "OFF":
+                                s["fur_B"] = "B2"
+                            elif chg_type == "B2 -> B1" and s["fur_B"] != "OFF":
+                                s["fur_B"] = "B1"
                         if s["start"] <= dt_chg < s["end"]:
                             s["is_changeover"] = True
 
@@ -155,28 +152,18 @@ with tab1:
                 readings.append(next_r)
                 curr_r = next_r
 
-            rows = [{
-                "Time": dt_start.strftime('%I:%M %p').lstrip('0'),
-                "KVAH": str(int(r_start)),
-                "Unit": "-",
-                "Status": f"{active_A}+{active_B} (Start)"
-            }]
+            rows = [{"Time": dt_start.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(r_start)), "Unit": "-", "Status": f"{active_A}+{active_B} (Start)"}]
             tot_sum = 0
             for i, s in enumerate(slots):
                 u_val = readings[i + 1] - readings[i]
                 tot_sum += u_val
                 st_txt = f"{s['fur_A']}+{s['fur_B']}"
-                if s["is_tapping"]: st_txt += " (Tap)"
-                rows.append({
-                    "Time": s['end'].strftime('%I:%M %p').lstrip('0'),
-                    "KVAH": str(readings[i + 1]),
-                    "Unit": str(u_val),
-                    "Status": st_txt
-                })
+                if s["is_tapping"]:
+                    st_txt += " (Tap)"
+                rows.append({"Time": s['end'].strftime('%I:%M %p').lstrip('0'), "KVAH": str(readings[i + 1]), "Unit": str(u_val), "Status": st_txt})
 
             df = pd.DataFrame(rows)
             st.dataframe(df, use_container_width=True, hide_index=True)
-
             st.success(f"**Total Reading Units:** {tot_sum}")
             if user_check > 0:
                 diff = tot_sum - int(user_check)
@@ -185,17 +172,11 @@ with tab1:
                 else:
                     st.warning(f"⚠️ **Cross-Verify Mismatch:** Aapke total se {diff:+d} units ka farq hai!")
 
-# ==========================================
-# TAB 2: HEAT-BY-HEAT REPORT GENERATOR
-# ==========================================
 with tab2:
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
-    
-    # Kitni Heats hain yeh form ke bahar rakha hai taaki box turant update ho
     num_heats = st.number_input("Kitni Heats hain?", min_value=1, max_value=20, value=3, step=1, key="num_heats_box")
     
-    # Form use karne se mobile par text gayab nahi hoga aur ek click mein submit hoga
     with st.form(key="heat_report_form"):
         h_col1, h_col2 = st.columns(2)
         with h_col1:
@@ -207,14 +188,26 @@ with tab2:
 
         heat_inputs = []
         for i in range(1, int(num_heats) + 1):
-            with st.container(border=True):
-                st.markdown(f"**Heat #{i}**")
-                c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
-                with c1:
-                    ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
-                with c2:
-                    ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
-                with c3:
-                    ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
-                with c4:
-            
+            st.markdown(f"**--- Heat #{i} ---**")
+            c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
+            with c1:
+                ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
+            with c2:
+                ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
+            with c3:
+                ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
+            with c4:
+                bdm = st.number_input("BD(m)", min_value=0, value=0, step=5, key=f"bd_{i}")
+            heat_inputs.append((i, ht, ton, ttap, bdm))
+
+        submitted = st.form_submit_button("🔥 Heat Report Banayein", type="primary", use_container_width=True)
+
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+
+    if submitted:
+        if kw_e <= kw_s or kvah_e <= kvah_s:
+            st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
+        else:
+            tot_kw_u = round(((kw_e - kw_s) / 10.0) * MF)
+            tot_kvah_u = round(((kvah_e - kvah_s) / 10.0) * MF)
+                
