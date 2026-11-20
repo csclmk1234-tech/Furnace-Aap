@@ -35,14 +35,12 @@ tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
 with tab1:
     c1, c2 = st.columns(2)
-    with c1:
-        t1_s = st.text_input("Start Time", "8:00am")
-        r1_s = st.number_input("Start KVAH", value=249751728, step=1, format="%d")
-        f_a = st.selectbox("A-Line", ["A1", "A2"])
-    with c2:
-        t1_e = st.text_input("End Time", "10:30am")
-        r1_e = st.number_input("End KVAH", value=249775482, step=1, format="%d")
-        f_b = st.selectbox("B-Line", ["B1", "B2"], index=1)
+    t1_s = c1.text_input("Start Time", "8:00am")
+    r1_s = c1.number_input("Start KVAH", value=249751728, step=1, format="%d")
+    f_a = c1.selectbox("A-Line", ["A1", "A2"])
+    t1_e = c2.text_input("End Time", "10:30am")
+    r1_e = c2.number_input("End KVAH", value=249775482, step=1, format="%d")
+    f_b = c2.selectbox("B-Line", ["B1", "B2"], index=1)
 
     u_chk = st.number_input("Cross-Verify Total (Optional)", value=0, step=1, format="%d")
     tap_in = st.text_input("Tapping Times (comma lagayein)", placeholder="8:25am, 9:45am")
@@ -95,8 +93,7 @@ with tab1:
                             elif ch_t == "B2->B1" and s["b"] != "OFF": s["b"] = "B1"
                         if s["s"] <= dc < s["e"]: s["chg"] = True
             if gld_s.strip() and gld_e.strip():
-                dgs = parse_time(gld_s, ds)
-                dge = parse_time(gld_e, ds)
+                dgs, dge = parse_time(gld_s, ds), parse_time(gld_e, ds)
                 if dgs and dge:
                     for s in slots:
                         if s["s"] < dge and s["e"] > dgs: s["gld"] = True
@@ -125,9 +122,7 @@ with tab1:
 
             rows = [{"Time": ds.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(r1_s)), "Unit": "-", "Status": f"{f_a}+{f_b}"}]
             for i, s in enumerate(slots):
-                st_lb = f"{s['a']}+{s['b']}"
-                if s["gld"]: st_lb += " (GLD)"
-                elif s["tap"]: st_lb += " (Tap)"
+                st_lb = f"{s['a']}+{s['b']}" + (" (GLD)" if s["gld"] else (" (Tap)" if s["tap"] else ""))
                 rows.append({"Time": s["e"].strftime('%I:%M %p').lstrip('0'), "KVAH": str(rds[i+1]), "Unit": str(rds[i+1]-rds[i]), "Status": st_lb})
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             st.success(f"Total Units: {tot_u}")
@@ -144,19 +139,21 @@ with tab2:
     kvahe_t = hc2.text_input("End kVAh", "168962656")
     n_h = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2)
 
-    gen_btn = st.button("🔥 GENERATE HEAT REPORT", type="primary", use_container_width=True)
+    st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
     rep_spot = st.container()
     st.markdown("---")
 
     h_list = []
     for i in range(1, int(n_h) + 1):
         st.markdown(f"**Heat #{i}**")
-        x1, x2, x3, x4 = st.columns([1.3, 1, 1, 0.7])
-        ht = x1.selectbox("Type", ["Normal", "Sintering", "GLD / Tripping"], key=f"t_{i}")
+        gld_chk = st.checkbox(f"⚡ Is Heat #{i} mein GLD / Tripping problem aayi?", key=f"gld_{i}")
+        x1, x2, x3, x4 = st.columns([1.2, 1, 1, 0.8])
+        ht = x1.selectbox("Type", ["Normal", "Sintering"], key=f"t_{i}")
         ton = x2.text_input("ON", "8:00am", key=f"o_{i}")
         ttap = x3.text_input("TAP", "10:00am", key=f"p_{i}")
         bd = x4.text_input("BD(m)", "0", key=f"b_{i}")
-        h_list.append((i, ht, ton, ttap, bd))
+        final_type = "GLD" if gld_chk else ht
+        h_list.append((i, final_type, ton, ttap, bd))
 
     kws, kwe = get_num(kws_t), get_num(kwe_t)
     kvs, kve = get_num(kvahs_t), get_num(kvahe_t)
@@ -176,13 +173,9 @@ with tab2:
                     ok = False
                     break
                 bdm = float(get_num(bd))
-                dur = max(60.0, (dtp - don).total_seconds() / 60.0) if (dtp - don).total_seconds() <= 0 else (dtp - don).total_seconds() / 60.0
-                if ht == "Sintering":
-                    mult, var = 0.72, random.uniform(0.96, 1.04)
-                elif ht == "GLD / Tripping":
-                    mult, var = 0.78, random.uniform(0.88, 1.08)
-                else:
-                    mult, var = 1.0, random.uniform(0.96, 1.04)
+                dur = 60.0 if (dtp - don).total_seconds() <= 0 else (dtp - don).total_seconds() / 60.0
+                mult = 0.72 if ht == "Sintering" else (0.78 if ht == "GLD" else 1.0)
+                var = random.uniform(0.88, 1.08) if ht == "GLD" else random.uniform(0.96, 1.04)
                 w = ((max(5.0, dur - bdm) * mult) + (bdm * 0.5)) * var
                 ph.append({"no": i, "ht": ht, "tap": dtp, "w": w})
 
@@ -196,7 +189,7 @@ with tab2:
                     if x["ht"] == "Sintering":
                         x["kwu"] = round(x["kvu"] * random.uniform(0.800, 0.900))
                         rkw -= x["kwu"]
-                    elif x["ht"] == "GLD / Tripping":
+                    elif x["ht"] == "GLD":
                         x["kwu"] = round(x["kvu"] * random.uniform(0.860, 0.925))
                         rkw -= x["kwu"]
                     else:
@@ -211,7 +204,8 @@ with tab2:
                         if k < len(nidx) - 1: rkw -= v
 
                 st.success(f"✅ Total Kwh: {tkw} | Kvah: {tkv} | Pf: {(tkw/tkv):.3f}")
-                out_txt = ""
+                h_rows = []
                 for x in ph:
                     pf = x["kwu"] / x["kvu"] if x["kvu"] > 0 else 0.0
-    
+                    tc = x["tap"].strftime('%I:%M %p').lstrip('0')
+        
