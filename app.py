@@ -28,21 +28,15 @@ t1, t2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
 with t1:
     c1, c2 = st.columns(2)
-    ts = c1.text_input("Start Time", "8:00am")
-    rs = c1.number_input("Start KVAH", value=249751728, step=1, format="%d")
-    fa = c1.selectbox("A-Line", ["A1", "A2"])
-    te = c2.text_input("End Time", "10:30am")
-    re = c2.number_input("End KVAH", value=249775482, step=1, format="%d")
-    fb = c2.selectbox("B-Line", ["B1", "B2"], index=1)
+    ts, rs, fa = c1.text_input("Start Time", "8:00am"), c1.number_input("Start KVAH", value=249751728, step=1, format="%d"), c1.selectbox("A-Line", ["A1", "A2"])
+    te, re, fb = c2.text_input("End Time", "10:30am"), c2.number_input("End KVAH", value=249775482, step=1, format="%d"), c2.selectbox("B-Line", ["B1", "B2"], index=1)
     uc = st.number_input("Cross-Verify Total (Optional)", value=0, step=1, format="%d")
     tp = st.text_input("Tapping Times", placeholder="8:25am, 9:45am")
     with st.expander("➕ Breakdown / Changeover / GLD"):
         b1, b2, b3 = st.columns(3)
-        bf = b1.selectbox("OFF Fur", ["None", "A", "B", "BOTH"])
-        bs, be = b2.text_input("OFF Time"), b3.text_input("ON Time")
+        bf, bs, be = b1.selectbox("OFF Fur", ["None", "A", "B", "BOTH"]), b2.text_input("OFF Time"), b3.text_input("ON Time")
         k1, k2 = st.columns(2)
-        ct = k1.selectbox("Changeover", ["None", "A1->A2", "A2->A1", "B1->B2", "B2->B1"])
-        cm = k2.text_input("Chg Time")
+        ct, cm = k1.selectbox("Changeover", ["None", "A1->A2", "A2->A1", "B1->B2", "B2->B1"]), k2.text_input("Chg Time")
         g1, g2 = st.columns(2)
         gs, ge = g1.text_input("GLD Start"), g2.text_input("GLD End")
 
@@ -53,12 +47,11 @@ with t1:
         else:
             tu, sl, cur = int(re - rs), [], ds
             while cur < de:
-                nx = min(cur + timedelta(minutes=15), de)
+                nx = min(curr_nx := cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "a": fa, "b": fb, "t": 0, "c": 0, "g": 0})
                 cur = nx
             for x in tp.split(","):
-                dt = pt(x, ds)
-                if dt:
+                if dt := pt(x, ds):
                     for s in sl:
                         if s["s"] <= dt < s["e"]: s["t"] = 1
             if bf != "None" and bs.strip():
@@ -68,21 +61,17 @@ with t1:
                         if s["s"] < dn and s["e"] > do:
                             if bf in ("A", "BOTH"): s["a"] = "OFF"
                             if bf in ("B", "BOTH"): s["b"] = "OFF"
-            if ct != "None" and cm.strip():
-                dc = pt(cm, ds)
-                if dc:
-                    for s in sl:
-                        if s["s"] >= dc:
-                            if ct == "A1->A2" and s["a"] != "OFF": s["a"] = "A2"
-                            elif ct == "A2->A1" and s["a"] != "OFF": s["a"] = "A1"
-                            elif ct == "B1->B2" and s["b"] != "OFF": s["b"] = "B2"
-                            elif ct == "B2->B1" and s["b"] != "OFF": s["b"] = "B1"
-                        if s["s"] <= dc < s["e"]: s["c"] = 1
-            if gs.strip() and ge.strip():
-                d1, d2 = pt(gs, ds), pt(ge, ds)
-                if d1 and d2:
-                    for s in sl:
-                        if s["s"] < d2 and s["e"] > d1: s["g"] = 1
+            if ct != "None" and cm.strip() and (dc := pt(cm, ds)):
+                for s in sl:
+                    if s["s"] >= dc:
+                        if ct == "A1->A2" and s["a"] != "OFF": s["a"] = "A2"
+                        elif ct == "A2->A1" and s["a"] != "OFF": s["a"] = "A1"
+                        elif ct == "B1->B2" and s["b"] != "OFF": s["b"] = "B2"
+                        elif ct == "B2->B1" and s["b"] != "OFF": s["b"] = "B1"
+                    if s["s"] <= dc < s["e"]: s["c"] = 1
+            if gs.strip() and ge.strip() and (d1 := pt(gs, ds)) and (d2 := pt(ge, ds)):
+                for s in sl:
+                    if s["s"] < d2 and s["e"] > d1: s["g"] = 1
             wt, pw = [], 0.0
             for i, s in enumerate(sl):
                 dr = ((s["e"] - s["s"]).total_seconds() / 60.0) / 15.0
@@ -109,32 +98,26 @@ with t1:
             if uc > 0: st.info("✅ MATCH!" if tu == int(uc) else f"⚠️ Farq: {tu-int(uc):+d}")
 
 with t2:
-    rmode = st.radio("Meter Reading Format:", ["Direct Reading (Diff × 8)", "Last Digit Decimal ((Diff ÷ 10) × 8)"], horizontal=True)
+    rm = st.radio("Reading Mode:", ["Direct (Diff × 8)", "Decimal ((Diff ÷ 10) × 8)"], horizontal=True)
     h1, h2 = st.columns(2)
     ks, vs = gn(h1.text_input("Start kWh", "16013252")), gn(h1.text_input("Start kVAh", "16891404"))
     ke, ve = gn(h2.text_input("End kWh", "16017723")), gn(h2.text_input("End kVAh", "16896265"))
-    nh = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2)
-    st.markdown("---")
+    nh = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=3)
     hl = []
     for i in range(1, int(nh) + 1):
         st.markdown(f"**Heat #{i}**")
-        gc = st.checkbox(f"⚡ Heat #{i} mein GLD / Tripping aayi?", key=f"g_{i}")
+        gc = st.checkbox(f"⚡ Heat #{i} GLD / Tripping?", key=f"g_{i}")
         x1, x2, x3, x4 = st.columns([1.2, 1, 1, 0.8])
         ht = x1.selectbox("Type", ["Normal", "Sintering"], key=f"t_{i}")
         lbl = "Sint+GLD" if (ht == "Sintering" and gc) else ("GLD" if gc else ht)
         hl.append((i, lbl, x2.text_input("ON", "8:00am", key=f"o_{i}"), x3.text_input("TAP", "10:00am", key=f"p_{i}"), gn(x4.text_input("BD(m)", "0", key=f"b_{i}"))))
 
-    st.markdown("---")
     st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
-
-    if ke <= ks or ve <= vs: st.error("End Reading badi honi chahiye!")
+    dv = 10.0 if "Decimal" in rm else 1.0
+    tk, tv = round((ke - ks) / dv), round((ve - vs) / dv)
+    if ke <= ks or ve <= vs or tk >= tv:
+        st.error("Reading check karein! (End > Start aur kWh Diff < kVAh Diff hona chahiye)")
     else:
-        # Pehle meter clicks (steps) nikalna taaki har heat ki unit STRICT 8 KE FACTOR (x 8) mein hi aaye!
-        div = 10.0 if "Decimal" in rmode else 1.0
-        tot_k_steps = round((ke - ks) / div)
-        tot_v_steps = round((ve - vs) / div)
-        tkw, tkv = tot_k_steps * 8, tot_v_steps * 8
-
         ph, fd, ok = [], None, 1
         for i, ht, on, tp2, bm in hl:
             d1 = pt(on, fd)
@@ -145,39 +128,38 @@ with t2:
             ml = 0.62 if ht == "Sint+GLD" else (0.72 if ht == "Sintering" else (0.78 if ht == "GLD" else 1.0))
             vr = random.uniform(0.88, 1.08) if "GLD" in ht else random.uniform(0.96, 1.04)
             ph.append({"n": i, "h": ht, "t": d2, "w": ((max(5.0, du - bm) * ml) + bm * 0.5) * vr})
-
         if ok and ph:
-            tw, rv_s = sum(x["w"] for x in ph), tot_v_steps
+            tw, rvs = sum(x["w"] for x in ph), tv
             for j, x in enumerate(ph):
-                vs_step = rv_s if j == len(ph) - 1 else round((x["w"] / tw) * tot_v_steps)
-                x["vs"] = vs_step
-                if j < len(ph) - 1: rv_s -= vs_step
-
-            rk_s, ni = tot_k_steps, []
+                x["vs"] = rvs if j == len(ph) - 1 else max(10, round((x["w"] / tw) * tv))
+                if j < len(ph) - 1: rvs -= x["vs"]
+            pb = {"Sint+GLD": (0.80, 0.865), "Sintering": (0.80, 0.90), "GLD": (0.86, 0.915), "Normal": (0.93, 0.992)}
+            mnl, mxl = [], []
+            for x in ph:
+                lo, hi = pb[x["h"]]
+                mn, mx = max(1, round(x["vs"] * lo)), min(x["vs"] - 1, round(x["vs"] * hi))
+                if mn > mx: mn = mx
+                x["ks"] = random.randint(mn, mx); mnl.append(mn); mxl.append(mx)
+            df = tk - sum(x["ks"] for x in ph)
+            for _ in range(30000):
+                if df == 0: break
+                ix = random.randrange(len(ph))
+                if df > 0 and ph[ix]["ks"] < mxl[ix]: ph[ix]["ks"] += 1; df -= 1
+                elif df < 0 and ph[ix]["ks"] > mnl[ix]: ph[ix]["ks"] -= 1; df += 1
+            for _ in range(30000):
+                if df == 0: break
+                ix = random.randrange(len(ph))
+                hmx, hmn = max(1, int(ph[ix]["vs"] * 0.995)), max(1, int(ph[ix]["vs"] * 0.75))
+                if df > 0 and ph[ix]["ks"] < hmx: ph[ix]["ks"] += 1; df -= 1
+                elif df < 0 and ph[ix]["ks"] > hmn: ph[ix]["ks"] -= 1; df += 1
+            st.success(f"✅ Total Kwh: {tk*8} | Kvah: {tv*8} | Pf: {(tk/tv):.3f}")
+            hr, txt, ck, cv = [], "", ks, vs
             for j, x in enumerate(ph):
-                if x["h"] == "Sint+GLD": ks_step = round(x["vs"] * random.uniform(0.800, 0.865)); x["ks"] = ks_step; rk_s -= ks_step
-                elif x["h"] == "Sintering": ks_step = round(x["vs"] * random.uniform(0.800, 0.900)); x["ks"] = ks_step; rk_s -= ks_step
-                elif x["h"] == "GLD": ks_step = round(x["vs"] * random.uniform(0.860, 0.915)); x["ks"] = ks_step; rk_s -= ks_step
-                else: ni.append(j)
-
-            if not ni: ph[-1]["ks"] += rk_s
-            else:
-                nw = [ph[j]["vs"] * random.uniform(0.985, 1.015) for j in ni]
-                tn = sum(nw)
-                for k, j in enumerate(ni):
-                    v = rk_s if k == len(ni) - 1 else min(ph[j]["vs"], round((nw[k] / tn) * rk_s))
-                    ph[j]["ks"] = v
-                    if k < len(ni) - 1: rk_s -= v
-
-            st.success(f"✅ Total Kwh: {tkw} | Kvah: {tkv} | Pf: {(tkw/tkv):.3f}")
-            hr, txt = [], ""
-            ck, cv = ks, vs
-            for j, x in enumerate(ph):
-                ku, vu = x["ks"] * 8, x["vs"] * 8  # STRICT MULTIPLE OF 8!
-                ck = ke if j == len(ph) - 1 else ck + round(x["ks"] * div)
-                cv = ve if j == len(ph) - 1 else cv + round(x["vs"] * div)
+                ku, vu = x["ks"] * 8, x["vs"] * 8
+                ck = ke if j == len(ph) - 1 else ck + round(x["ks"] * dv)
+                cv = ve if j == len(ph) - 1 else cv + round(x["vs"] * dv)
                 pf, tc = (ku / vu if vu > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
-                hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "kWh Read": ck, "Kwh Unit": ku, "kVAh Read": cv, "Kvah Unit": vu, "PF": f"{pf:.3f}"})
+                hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "kWh": ku, "kVAh": vu, "PF": f"{pf:.3f}"})
                 txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf:.3f}\n\n"
             st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
             st.code(txt.strip(), language=None)
