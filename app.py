@@ -113,8 +113,6 @@ with t2:
     ks, vs = gn(h1.text_input("Start kWh", "160132528")), gn(h1.text_input("Start kVAh", "168914048"))
     ke, ve = gn(h2.text_input("End kWh", "160177232")), gn(h2.text_input("End kVAh", "168962656"))
     nh = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2)
-    st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
-    spot = st.container()
     st.markdown("---")
     hl = []
     for i in range(1, int(nh) + 1):
@@ -122,45 +120,51 @@ with t2:
         gc = st.checkbox(f"⚡ Heat #{i} mein GLD / Tripping aayi?", key=f"g_{i}")
         x1, x2, x3, x4 = st.columns([1.2, 1, 1, 0.8])
         ht = x1.selectbox("Type", ["Normal", "Sintering"], key=f"t_{i}")
-        hl.append((i, "GLD" if gc else ht, x2.text_input("ON", "8:00am", key=f"o_{i}"), x3.text_input("TAP", "10:00am", key=f"p_{i}"), gn(x4.text_input("BD(m)", "0", key=f"b_{i}"))))
+        lbl = "Sint+GLD" if (ht == "Sintering" and gc) else ("GLD" if gc else ht)
+        hl.append((i, lbl, x2.text_input("ON", "8:00am", key=f"o_{i}"), x3.text_input("TAP", "10:00am", key=f"p_{i}"), gn(x4.text_input("BD(m)", "0", key=f"b_{i}"))))
 
-    with spot:
-        if ke <= ks or ve <= vs: st.error("End Reading badi honi chahiye!")
-        else:
-            tkw, tkv, ph, fd, ok = round(((ke - ks) / 10.0) * 8), round(((ve - vs) / 10.0) * 8), [], None, 1
-            for i, ht, on, tp2, bm in hl:
-                d1 = pt(on, fd)
-                if i == 1: fd = d1
-                d2 = pt(tp2, d1) if d1 else None
-                if not d1 or not d2: st.warning(f"Heat #{i} time galat!"); ok = 0; break
-                du = 60.0 if (d2 - d1).total_seconds() <= 0 else (d2 - d1).total_seconds() / 60.0
-                ml = 0.72 if ht == "Sintering" else (0.78 if ht == "GLD" else 1.0)
-                vr = random.uniform(0.88, 1.08) if ht == "GLD" else random.uniform(0.96, 1.04)
-                ph.append({"n": i, "h": ht, "t": d2, "w": ((max(5.0, du - bm) * ml) + bm * 0.5) * vr})
-            if ok and ph:
-                tw, rv = sum(x["w"] for x in ph), tkv
-                for j, x in enumerate(ph):
-                    x["vu"] = rv if j == len(ph) - 1 else round((x["w"] / tw) * tkv)
-                    if j < len(ph) - 1: rv -= x["vu"]
-                rk, ni = tkw, []
-                for j, x in enumerate(ph):
-                    if x["h"] == "Sintering": x["ku"] = round(x["vu"] * random.uniform(0.80, 0.90)); rk -= x["ku"]
-                    elif x["h"] == "GLD": x["ku"] = round(x["vu"] * random.uniform(0.86, 0.925)); rk -= x["ku"]
-                    else: ni.append(j)
-                if not ni: ph[-1]["ku"] += rk
-                else:
-                    nw = [ph[j]["vu"] * random.uniform(0.985, 1.015) for j in ni]
-                    tn = sum(nw)
-                    for k, j in enumerate(ni):
-                        v = rk if k == len(ni) - 1 else min(ph[j]["vu"], round((nw[k] / tn) * rk))
-                        ph[j]["ku"] = v
-                        if k < len(ni) - 1: rk -= v
-                st.success(f"✅ Total Kwh: {tkw} | Kvah: {tkv} | Pf: {(tkw/tkv):.3f}")
-                hr, txt = [], ""
-                for x in ph:
-                    pf, tc = (x["ku"] / x["vu"] if x["vu"] > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
-                    hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "Kwh": x["ku"], "Kvah": x["vu"], "PF": f"{pf:.3f}"})
-                    txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nKwh units        : {x['ku']}\nKvah units       : {x['vu']}\nPf.              : {pf:.3f}\n\n"
-                st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
-                st.code(txt.strip(), language=None)
+    st.markdown("---")
+    st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
+
+    if ke <= ks or ve <= vs: st.error("End Reading badi honi chahiye!")
+    else:
+        tkw, tkv, ph, fd, ok = round(((ke - ks) / 10.0) * 8), round(((ve - vs) / 10.0) * 8), [], None, 1
+        for i, ht, on, tp2, bm in hl:
+            d1 = pt(on, fd)
+            if i == 1: fd = d1
+            d2 = pt(tp2, d1) if d1 else None
+            if not d1 or not d2: st.warning(f"Heat #{i} time galat!"); ok = 0; break
+            du = 60.0 if (d2 - d1).total_seconds() <= 0 else (d2 - d1).total_seconds() / 60.0
+            ml = 0.62 if ht == "Sint+GLD" else (0.72 if ht == "Sintering" else (0.78 if ht == "GLD" else 1.0))
+            vr = random.uniform(0.88, 1.08) if "GLD" in ht else random.uniform(0.96, 1.04)
+            ph.append({"n": i, "h": ht, "t": d2, "w": ((max(5.0, du - bm) * ml) + bm * 0.5) * vr})
+        if ok and ph:
+            tw, rv = sum(x["w"] for x in ph), tkv
+            for j, x in enumerate(ph):
+                x["vu"] = rv if j == len(ph) - 1 else round((x["w"] / tw) * tkv)
+                if j < len(ph) - 1: rv -= x["vu"]
+            rk, ni = tkw, []
+            for j, x in enumerate(ph):
+                if x["h"] == "Sint+GLD": x["ku"] = round(x["vu"] * random.uniform(0.800, 0.865)); rk -= x["ku"]
+                elif x["h"] == "Sintering": x["ku"] = round(x["vu"] * random.uniform(0.800, 0.900)); rk -= x["ku"]
+                elif x["h"] == "GLD": x["ku"] = round(x["vu"] * random.uniform(0.860, 0.915)); rk -= x["ku"]
+                else: ni.append(j)
+            if not ni: ph[-1]["ku"] += rk
+            else:
+                nw = [ph[j]["vu"] * random.uniform(0.985, 1.015) for j in ni]
+                tn = sum(nw)
+                for k, j in enumerate(ni):
+                    v = rk if k == len(ni) - 1 else min(ph[j]["vu"], round((nw[k] / tn) * rk))
+                    ph[j]["ku"] = v
+                    if k < len(ni) - 1: rk -= v
+            st.success(f"✅ Total Kwh: {tkw} | Kvah: {tkv} | Pf: {(tkw/tkv):.3f}")
+            hr, txt = [], ""
+            for x in ph:
+                pf, tc = (x["ku"] / x["vu"] if x["vu"] > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
+                hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "Kwh": x["ku"], "Kvah": x["vu"], "PF": f"{pf:.3f}"})
+                txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nKwh units        : {x['ku']}\nKvah units       : {x['vu']}\nPf.              : {pf:.3f}\n\n"
+            st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
+            st.code(txt.strip(), language=None)
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
 # DONE
+                                                                  
