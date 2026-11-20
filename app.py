@@ -2,7 +2,7 @@ import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="16.5T Furnace App", page_icon="⚡")
-st.title("⚡ 16.5T (5800 kW) Furnace App")
+st.title("⚡ My Load Maneger Furnace App")
 
 def pt(s, b=None):
     if not s: return None
