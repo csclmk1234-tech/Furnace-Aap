@@ -30,6 +30,9 @@ def parse_flexible_time(t_str, base_start=None):
 
 tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
+# ==========================================
+# TAB 1: 15-MIN REGISTER GENERATOR
+# ==========================================
 with tab1:
     st.subheader("15-Min KVAH Reading & Unit")
     col1, col2 = st.columns(2)
@@ -172,42 +175,43 @@ with tab1:
                 else:
                     st.warning(f"⚠️ **Cross-Verify Mismatch:** Aapke total se {diff:+d} units ka farq hai!")
 
+# ==========================================
+# TAB 2: HEAT-BY-HEAT REPORT GENERATOR (ULTRA SIMPLE)
+# ==========================================
 with tab2:
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
-    num_heats = st.number_input("Kitni Heats hain?", min_value=1, max_value=20, value=3, step=1, key="num_heats_box")
     
-    with st.form(key="heat_report_form"):
-        h_col1, h_col2 = st.columns(2)
-        with h_col1:
-            kw_s = st.number_input("Start kWh Reading", value=160132528, step=1, format="%d")
-            kvah_s = st.number_input("Start kVAh Reading", value=168914048, step=1, format="%d")
-        with h_col2:
-            kw_e = st.number_input("End kWh Reading", value=160177232, step=1, format="%d")
-            kvah_e = st.number_input("End kVAh Reading", value=168962656, step=1, format="%d")
+    h_col1, h_col2 = st.columns(2)
+    with h_col1:
+        kw_s_txt = st.text_input("Start kWh Reading", value="160132528", key="kws_t")
+        kvah_s_txt = st.text_input("Start kVAh Reading", value="168914048", key="kvahs_t")
+    with h_col2:
+        kw_e_txt = st.text_input("End kWh Reading", value="160177232", key="kwe_t")
+        kvah_e_txt = st.text_input("End kVAh Reading", value="168962656", key="kvahe_t")
 
-        heat_inputs = []
-        for i in range(1, int(num_heats) + 1):
-            st.markdown(f"**--- Heat #{i} ---**")
-            c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
-            with c1:
-                ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
-            with c2:
-                ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
-            with c3:
-                ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
-            with c4:
-                bdm = st.number_input("BD(m)", min_value=0, value=0, step=5, key=f"bd_{i}")
-            heat_inputs.append((i, ht, ton, ttap, bdm))
+    num_heats = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2, key="nh_sel")
 
-        submitted = st.form_submit_button("🔥 Heat Report Banayein", type="primary", use_container_width=True)
+    heat_inputs = []
+    for i in range(1, int(num_heats) + 1):
+        st.markdown(f"**Heat #{i}**")
+        c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
+        with c1:
+            ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
+        with c2:
+            ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
+        with c3:
+            ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
+        with c4:
+            bd_txt = st.text_input("BD(m)", value="0", key=f"bd_{i}")
+        heat_inputs.append((i, ht, ton, ttap, bd_txt))
 
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-
-    if submitted:
-        if kw_e <= kw_s or kvah_e <= kvah_s:
-            st.error("⚠️ End Reading hamesha Start Reading se badi honi chahiye!")
-        else:
-            tot_kw_u = round(((kw_e - kw_s) / 10.0) * MF)
-            tot_kvah_u = round(((kvah_e - kvah_s) / 10.0) * MF)
-                
+    st.markdown("---")
+    if st.button("🔥 GENERATE HEAT REPORT", type="primary", use_container_width=True, key="gen_h_btn"):
+        try:
+            kw_s = int(float(kw_s_txt.strip()))
+            kw_e = int(float(kw_e_txt.strip()))
+            kvah_s = int(float(kvah_s_txt.strip()))
+            kvah_e = int(float(kvah_e_txt.strip()))
+        except ValueError:
+            
