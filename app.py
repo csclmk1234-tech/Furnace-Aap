@@ -9,7 +9,9 @@ st.title("⚡ Furnace Log & Meter App")
 st.caption("15-Min KVAH Register & Heat-by-Heat Units Generator")
 
 def parse_flexible_time(t_str, base_start=None):
-    t_str = t_str.strip().upper().replace(".", ":")
+    if not t_str:
+        return None
+    t_str = str(t_str).strip().upper().replace(".", ":")
     for suffix in ("AM", "PM"):
         if t_str.endswith(suffix) and ":" not in t_str:
             num_part = t_str[:-2].strip()
@@ -27,7 +29,6 @@ def parse_flexible_time(t_str, base_start=None):
             continue
     return None
 
-# 2 Tabs: Ek 15-Min Register ke liye, Doosra Heat Report ke liye
 tab1, tab2 = st.tabs(["📋 15-Min Register", "🔥 Heat-by-Heat Report"])
 
 # ==========================================
@@ -190,31 +191,30 @@ with tab1:
 with tab2:
     st.subheader("Heat-Wise kWh, kVAh (MF=8) & PF")
     MF = 8
-    h_col1, h_col2 = st.columns(2)
-    with h_col1:
-        kw_s = st.number_input("Start kWh Reading", value=1254000, step=1, format="%d")
-        kvah_s = st.number_input("Start kVAh Reading", value=1315000, step=1, format="%d")
-    with h_col2:
-        kw_e = st.number_input("End kWh Reading", value=1293900, step=1, format="%d")
-        kvah_e = st.number_input("End kVAh Reading", value=1357000, step=1, format="%d")
-
-    num_heats = st.number_input("Kitni Heats hain?", min_value=1, max_value=20, value=3, step=1)
     
-    # Upar wala Calculate Button (taaki neeche scroll na karna pade)
-    btn_top = st.button("🔥 Heat Report Banayein", type="primary", use_container_width=True, key="btn_heat_top")
+    # Kitni Heats hain yeh form ke bahar rakha hai taaki box turant update ho
+    num_heats = st.number_input("Kitni Heats hain?", min_value=1, max_value=20, value=3, step=1, key="num_heats_box")
     
-    heat_inputs = []
-    for i in range(1, int(num_heats) + 1):
-        with st.container(border=True):
-            st.markdown(f"**Heat #{i}**")
-            c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
-            with c1:
-                ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
-            with c2:
-                ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
-            with c3:
-                ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
-            with c4:
-                bdm = st.number_input("BD(m)", min_value=0, value=0, step=5, key=f"bd_{i}")
-            heat_inputs.append((i, ht, ton, ttap, bdm))
+    # Form use karne se mobile par text gayab nahi hoga aur ek click mein submit hoga
+    with st.form(key="heat_report_form"):
+        h_col1, h_col2 = st.columns(2)
+        with h_col1:
+            kw_s = st.number_input("Start kWh Reading", value=160132528, step=1, format="%d")
+            kvah_s = st.number_input("Start kVAh Reading", value=168914048, step=1, format="%d")
+        with h_col2:
+            kw_e = st.number_input("End kWh Reading", value=160177232, step=1, format="%d")
+            kvah_e = st.number_input("End kVAh Reading", value=168962656, step=1, format="%d")
 
+        heat_inputs = []
+        for i in range(1, int(num_heats) + 1):
+            with st.container(border=True):
+                st.markdown(f"**Heat #{i}**")
+                c1, c2, c3, c4 = st.columns([1.2, 1, 1, 0.8])
+                with c1:
+                    ht = st.selectbox("Type", ["Normal", "Sintering"], key=f"ht_{i}")
+                with c2:
+                    ton = st.text_input("ON Time", value="8:00am", key=f"ton_{i}")
+                with c3:
+                    ttap = st.text_input("TAP Time", value="10:00am", key=f"ttap_{i}")
+                with c4:
+            
