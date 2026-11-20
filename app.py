@@ -109,9 +109,10 @@ with t1:
             if uc > 0: st.info("✅ MATCH!" if tu == int(uc) else f"⚠️ Farq: {tu-int(uc):+d}")
 
 with t2:
+    rmode = st.radio("Meter Reading Format:", ["Direct Reading (Diff × 8)", "Last Digit Decimal ((Diff ÷ 10) × 8)"], horizontal=True)
     h1, h2 = st.columns(2)
-    ks, vs = gn(h1.text_input("Start kWh", "160132528")), gn(h1.text_input("Start kVAh", "168914048"))
-    ke, ve = gn(h2.text_input("End kWh", "160177232")), gn(h2.text_input("End kVAh", "168962656"))
+    ks, vs = gn(h1.text_input("Start kWh", "16013252")), gn(h1.text_input("Start kVAh", "16891404"))
+    ke, ve = gn(h2.text_input("End kWh", "16017723")), gn(h2.text_input("End kVAh", "16896265"))
     nh = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=2)
     st.markdown("---")
     hl = []
@@ -128,7 +129,13 @@ with t2:
 
     if ke <= ks or ve <= vs: st.error("End Reading badi honi chahiye!")
     else:
-        tkw, tkv, ph, fd, ok = round(((ke - ks) / 10.0) * 8), round(((ve - vs) / 10.0) * 8), [], None, 1
+        # Pehle meter clicks (steps) nikalna taaki har heat ki unit STRICT 8 KE FACTOR (x 8) mein hi aaye!
+        div = 10.0 if "Decimal" in rmode else 1.0
+        tot_k_steps = round((ke - ks) / div)
+        tot_v_steps = round((ve - vs) / div)
+        tkw, tkv = tot_k_steps * 8, tot_v_steps * 8
+
+        ph, fd, ok = [], None, 1
         for i, ht, on, tp2, bm in hl:
             d1 = pt(on, fd)
             if i == 1: fd = d1
@@ -138,33 +145,41 @@ with t2:
             ml = 0.62 if ht == "Sint+GLD" else (0.72 if ht == "Sintering" else (0.78 if ht == "GLD" else 1.0))
             vr = random.uniform(0.88, 1.08) if "GLD" in ht else random.uniform(0.96, 1.04)
             ph.append({"n": i, "h": ht, "t": d2, "w": ((max(5.0, du - bm) * ml) + bm * 0.5) * vr})
+
         if ok and ph:
-            tw, rv = sum(x["w"] for x in ph), tkv
+            tw, rv_s = sum(x["w"] for x in ph), tot_v_steps
             for j, x in enumerate(ph):
-                x["vu"] = rv if j == len(ph) - 1 else round((x["w"] / tw) * tkv)
-                if j < len(ph) - 1: rv -= x["vu"]
-            rk, ni = tkw, []
+                vs_step = rv_s if j == len(ph) - 1 else round((x["w"] / tw) * tot_v_steps)
+                x["vs"] = vs_step
+                if j < len(ph) - 1: rv_s -= vs_step
+
+            rk_s, ni = tot_k_steps, []
             for j, x in enumerate(ph):
-                if x["h"] == "Sint+GLD": x["ku"] = round(x["vu"] * random.uniform(0.800, 0.865)); rk -= x["ku"]
-                elif x["h"] == "Sintering": x["ku"] = round(x["vu"] * random.uniform(0.800, 0.900)); rk -= x["ku"]
-                elif x["h"] == "GLD": x["ku"] = round(x["vu"] * random.uniform(0.860, 0.915)); rk -= x["ku"]
+                if x["h"] == "Sint+GLD": ks_step = round(x["vs"] * random.uniform(0.800, 0.865)); x["ks"] = ks_step; rk_s -= ks_step
+                elif x["h"] == "Sintering": ks_step = round(x["vs"] * random.uniform(0.800, 0.900)); x["ks"] = ks_step; rk_s -= ks_step
+                elif x["h"] == "GLD": ks_step = round(x["vs"] * random.uniform(0.860, 0.915)); x["ks"] = ks_step; rk_s -= ks_step
                 else: ni.append(j)
-            if not ni: ph[-1]["ku"] += rk
+
+            if not ni: ph[-1]["ks"] += rk_s
             else:
-                nw = [ph[j]["vu"] * random.uniform(0.985, 1.015) for j in ni]
+                nw = [ph[j]["vs"] * random.uniform(0.985, 1.015) for j in ni]
                 tn = sum(nw)
                 for k, j in enumerate(ni):
-                    v = rk if k == len(ni) - 1 else min(ph[j]["vu"], round((nw[k] / tn) * rk))
-                    ph[j]["ku"] = v
-                    if k < len(ni) - 1: rk -= v
+                    v = rk_s if k == len(ni) - 1 else min(ph[j]["vs"], round((nw[k] / tn) * rk_s))
+                    ph[j]["ks"] = v
+                    if k < len(ni) - 1: rk_s -= v
+
             st.success(f"✅ Total Kwh: {tkw} | Kvah: {tkv} | Pf: {(tkw/tkv):.3f}")
             hr, txt = [], ""
-            for x in ph:
-                pf, tc = (x["ku"] / x["vu"] if x["vu"] > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
-                hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "Kwh": x["ku"], "Kvah": x["vu"], "PF": f"{pf:.3f}"})
-                txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nKwh units        : {x['ku']}\nKvah units       : {x['vu']}\nPf.              : {pf:.3f}\n\n"
+            ck, cv = ks, vs
+            for j, x in enumerate(ph):
+                ku, vu = x["ks"] * 8, x["vs"] * 8  # STRICT MULTIPLE OF 8!
+                ck = ke if j == len(ph) - 1 else ck + round(x["ks"] * div)
+                cv = ve if j == len(ph) - 1 else cv + round(x["vs"] * div)
+                pf, tc = (ku / vu if vu > 0 else 0), x["t"].strftime('%I:%M %p').lstrip('0')
+                hr.append({"Heat": f"#{x['n']} ({x['h']})", "TAP": tc, "kWh Read": ck, "Kwh Unit": ku, "kVAh Read": cv, "Kvah Unit": vu, "PF": f"{pf:.3f}"})
+                txt += f"--- Heat #{x['n']} ---\nHeat Taping Time : {tc}\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf:.3f}\n\n"
             st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
             st.code(txt.strip(), language=None)
     st.markdown("<br><br><br>", unsafe_allow_html=True)
 # DONE
-                                                                  
