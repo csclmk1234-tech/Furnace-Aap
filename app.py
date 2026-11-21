@@ -1,10 +1,10 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Furnace Master Pro", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Furnace Master 16.5T", page_icon="⚡", layout="wide")
 st.title("⚡ 16.5T Furnace Unified System")
 
-# Configuration for Situation Weights & PF
+# Configuration for Situation Weights
 COND_RULES = {
     "Normal Running": {"pf": (0.945, 0.982), "wt": 1.00},
     "Sintering (Lining Heat)": {"pf": (0.800, 0.880), "wt": 1.30}, 
@@ -38,10 +38,10 @@ def gn(v):
 tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat Report", "📋 2. 15-Min Register"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT (PREVIOUS PERFECT LOGIC)
+# TAB 1: HEAT-BY-HEAT (PRESERVED PERFECT LOGIC)
 # ==========================================
 with tab1:
-    st.markdown("### 1️⃣ Reading Se Total Nikalein")
+    st.markdown("### 1️⃣ Meter Readings (Direct x8 Division)")
     r1, r2 = st.columns(2)
     skw = gn(r1.text_input("Start kWh Reading", "160944480", key="h_skw"))
     skv = gn(r1.text_input("Start kVAh Reading", "169767296", key="h_skv"))
@@ -62,12 +62,11 @@ with tab1:
                 don, dtp = pt(on_t), pt(tp_t, pt(on_t), True)
                 dur_m = int((dtp - don).total_seconds() / 60) if don and dtp else 115
                 c3.markdown(f"**⏱️ Time:** {dur_m//60}h {dur_m%60}m"); ton = c4.number_input(f"Ton #{i}", 1.0, 22.0, 16.5, 0.1, key=f"tn_{i}")
-                cond = st.selectbox(f"Situation #{i}", list(COND_RULES.keys()), key=f"cd_{i}")
-                bd = st.number_input(f"BD Min #{i}", 0, 300, 0, 5, key=f"bm_{i}")
+                x1, x2 = st.columns(2); cond = x1.selectbox(f"Situation #{i}", list(COND_RULES.keys()), key=f"cd_{i}")
+                bd = x2.number_input(f"BD Min #{i}", 0, 300, 0, 5, key=f"bm_{i}")
                 hl.append({"no": i, "on": on_t, "tap": tp_t, "dur": f"{dur_m//60}h {dur_m%60}m", "m": dur_m, "ton": ton, "cond": cond, "bd": bd, "pfr": COND_RULES[cond]["pf"]})
         if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
-            sk = t_kwh // 8
-            k_sc = [(h["ton"] * COND_RULES[h["cond"]]["wt"] * random.uniform(0.98, 1.02)) + (h["bd"] * 0.45) for h in hl]
+            sk = t_kwh // 8; k_sc = [(h["ton"] * COND_RULES[h["cond"]]["wt"] * random.uniform(0.98, 1.02)) + (h["bd"] * 0.45) for h in hl]
             kw_s = [int(round((s / sum(k_sc)) * sk)) for s in k_sc]; kw_s[-1] += (sk - sum(kw_s))
             v_sc = [kw_s[i] / random.uniform(*hl[i]["pfr"]) for i in range(len(hl))]
             kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]; kv_s[-1] += ((t_kvah//8) - sum(kv_s))
@@ -79,49 +78,39 @@ with tab1:
             st.dataframe(pd.DataFrame(rep_r), use_container_width=True, hide_index=True); st.code(copy_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: 15-MIN REGISTER (WITH CROSS-MATCH)
+# TAB 2: 15-MIN REGISTER (ORGANIC VARIATION)
 # ==========================================
 with tab2:
     st.markdown("### 1️⃣ Meter Readings & Cross-Verify")
     c1, c2, c3 = st.columns(3)
     with c1:
-        ts4 = st.text_input("Start Time (Reg)", "8:00 AM")
-        rs4 = gn(st.text_input("Start KVAH (Reg)", "249751728"))
+        ts4 = st.text_input("Shift Start Time", "8:00 AM", key="r4_ts")
+        rs4 = gn(st.text_input("Start KVAH (Register)", "249983498", key="r4_rs"))
     with c2:
-        te4 = st.text_input("End Time (Reg)", "10:30 AM")
-        re4 = gn(st.text_input("End KVAH (Reg)", "249775482"))
+        te4 = st.text_input("Shift End Time", "10:30 AM", key="r4_te")
+        re4 = gn(st.text_input("End KVAH (Register)", "250011382", key="r4_re"))
     
-    # SYSTEM CALCULATION
     actual_diff = re4 - rs4
-    
     with c3:
-        st.markdown(f"**Meter Total:**")
+        st.markdown("**Meter Total:**")
         st.subheader(f"{actual_diff:,}")
-        expected_val = gn(st.text_input("Aapka Expected Total Units?", "0"))
+        expected_val = gn(st.text_input("Confirm Total Units", str(actual_diff)))
 
-    # VERIFICATION BANNER
-    if expected_val > 0:
-        if expected_val == actual_diff:
-            st.success(f"✅ **CROSS-MATCH OK!** Reading aur aapka total dono `{actual_diff:,}` hain.")
-        else:
-            st.error(f"❌ **MISMATCH!** Meter: `{actual_diff:,}` vs Aapka: `{expected_val:,}` (Farq: {actual_diff-expected_val})")
+    if expected_val > 0 and expected_val != actual_diff:
+        st.error(f"❌ Mismatch! Meter: {actual_diff:,} vs Aapka: {expected_val:,}")
 
     st.markdown("---")
-    st.markdown("### 2️⃣ Select Situations")
+    st.markdown("### 2️⃣ Situations & Furnaces")
     rc1, rc2 = st.columns(2)
-    fa4 = rc1.selectbox("A-Line Furnace", ["A1", "A2"])
-    fb4 = rc2.selectbox("B-Line Furnace", ["B1", "B2"], index=1)
-    tp4 = st.text_input("Tapping Times (Comma)", "8:25 AM, 9:45 AM")
+    fa4, fb4 = rc1.selectbox("A-Line", ["A1", "A2"]), rc2.selectbox("B-Line", ["B1", "B2"], index=1)
+    tp4 = st.text_input("Tapping Times (Register)", "8:15 AM, 10:00 AM")
     
-    with st.expander("➕ OFF Time / Special Situations", expanded=True):
+    with st.expander("➕ OFF Time / Special Case (GLD / Sintering)"):
         sc1, sc2, sc3 = st.columns(3)
         off_fur = sc1.selectbox("Any Furnace OFF?", ["None", "A OFF", "B OFF", "BOTH OFF"])
-        off_s = sc2.text_input("OFF From", "8:00 AM")
-        off_e = sc3.text_input("OFF To", "9:45 AM")
-        sc4, sc5, sc6 = st.columns(3)
-        sit_tp = sc4.selectbox("Special Condition", ["None", "GLD Problem", "Sintering Heat"])
-        sit_s = sc5.text_input("Sit. From", "")
-        sit_e = sc6.text_input("Sit. To", "")
+        off_s, off_e = sc2.text_input("OFF From", ""), sc3.text_input("OFF To", "")
+        sit_tp = st.selectbox("Special Condition?", ["None", "GLD Problem", "Sintering Heat"])
+        sit_s, sit_e = st.text_input("Sit. From", ""), st.text_input("Sit. To", "")
 
     if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True):
         ds, de = pt(ts4), pt(te4, pt(ts4), True)
@@ -129,39 +118,48 @@ with tab2:
             sl, cur = [], ds
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
-                sl.append({"s": cur, "e": nx, "fa": fa4, "fb": fb4, "status": "Both Running", "wt": 1.0, "min": 2850, "max": 3476})
+                sl.append({"s": cur, "e": nx, "fa": fa4, "fb": fb4, "status": "Both Running", "wt": 1.0})
                 cur = nx
             
             oss, oee = pt(off_s, ds), pt(off_e, ds)
             sss, see = pt(sit_s, ds), pt(sit_e, ds)
 
             for s in sl:
+                # Tapping check (Matches your manual 2426/2333 dip)
+                for x in tp4.split(","):
+                    if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
+                        s["status"], s["wt"] = "Tapping (Dip)", 0.78
+                
+                # OFF Furnace check (Matches your 1350-1800 range)
                 if off_fur != "None" and oss and oee and s["s"] < oee and s["e"] > oss:
                     if "A OFF" in off_fur: s["fa"] = "OFF"
                     if "B OFF" in off_fur: s["fb"] = "OFF"
                     if "BOTH" in off_fur: s["fa"], s["fb"] = "OFF", "OFF"
-                    s["status"], s["wt"], s["min"], s["max"] = off_fur, 0.48, 825, 1831
+                    s["status"], s["wt"] = off_fur, 0.52
+                
+                # Situation check
                 if sit_tp != "None" and sss and see and s["s"] < see and s["e"] > sss:
-                    if "Both" in s["status"]:
-                        s["status"], s["wt"], s["min"], s["max"] = sit_tp, 0.65, 1550, 2150
-                for x in tp4.split(","):
-                    if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
-                        if "Both" in s["status"]:
-                            s["status"], s["wt"], s["min"], s["max"] = "Tapping (Dip)", 0.72, 2150, 2840
+                    if s["status"] == "Both Running":
+                        s["status"], s["wt"] = sit_tp, 0.68
 
-            # --- DYNAMIC RANDOM ALLOCATION WITH STRICT TOTAL ---
-            final_units = [random.randint(s["min"], s["max"]) for s in sl]
-            diff_sum = actual_diff - sum(final_units)
+            # --- NEW ORGANIC SCALING LOGIC (No Fixed Caps) ---
+            # Step 1: Assign dynamic weights with natural jitter
+            dynamic_weights = [s["wt"] * random.uniform(0.85, 1.15) for s in sl]
+            total_wt = sum(dynamic_weights)
             
-            attempts = 0
-            while diff_sum != 0 and attempts < 10000:
-                idx = random.randrange(len(final_units))
-                step = 1 if diff_sum > 0 else -1
-                if sl[idx]["min"] <= final_units[idx] + step <= sl[idx]["max"]:
-                    final_units[idx] += step
-                    diff_sum -= step
-                attempts += 1
-            if diff_sum != 0: final_units[-1] += diff_sum # Force last fix
+            # Step 2: Proportional distribution based on total difference
+            final_units = [int(round((w / total_wt) * actual_diff)) for w in dynamic_weights]
+            
+            # Step 3: Exact total match adjustment
+            diff_sum = actual_diff - sum(final_units)
+            final_units[-1] += diff_sum 
+            
+            # Step 4: No-Duplicate Polish (Ensure values vary)
+            for i in range(len(final_units)-1):
+                if final_units[i] == final_units[i+1]:
+                    adjust = random.choice([-8, -4, 4, 8, 12, -12])
+                    final_units[i] += adjust
+                    final_units[i+1] -= adjust
 
             curr_r, rw = rs4, [{"Time": ds.strftime('%I:%M %p'), "Furnaces": f"{fa4}+{fb4}", "Situation": "Start", "KVAH": str(rs4), "Unit": "-"}]
             for i, s in enumerate(sl):
@@ -169,7 +167,6 @@ with tab2:
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "Furnaces": f"{s['fa']}+{s['fb']}", "Situation": s["status"], "KVAH": str(int(curr_r)), "Unit": str(int(final_units[i]))})
             
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success(f"Register Table Generated! Total: {actual_diff:,}")
-        else:
-            st.error("Readings ya Time check karein!")
-                                                             
+            st.success(f"Register Generated! Total: {actual_diff:,}")
+        else: st.error("Check Readings/Time!")
+                
