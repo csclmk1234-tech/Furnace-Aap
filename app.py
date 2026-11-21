@@ -1,243 +1,276 @@
-import streamlit as st, random, pandas as pd
-from datetime import datetime, timedelta
+import io, random
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta, date
+import database as db
 
-st.set_page_config(page_title="16.5T Furnace App", page_icon="⚡")
-st.title("⚡ My Load Manager Log Furnace App")
+st.set_page_config(page_title="16T Furnace System", page_icon="⚡", layout="wide")
+db.init_db()
 
-def pt(s, b=None):
-    if not s: return None
-    s = str(s).strip().upper().replace(".", ":")
-    for x in ("AM", "PM"):
-        if s.endswith(x) and ":" not in s and s[:-2].strip().isdigit():
-            s = f"{s[:-2].strip()}:00 {x}"
-    for f in ("%I:%M %p", "%I:%M%p", "%H:%M"):
+MF = 8
+CONDITIONS = {
+    "Normal Running (Optimal Melting)": {"pf": 0.940, "weight": 1.00, "cat": "Normal"},
+    "CCM Casting Running (Furnace Holding)": {"pf": 0.820, "weight": 1.15, "cat": "CCM Holding"},
+    "EOT Crane Breakdown (Metal Hold / Delay)": {"pf": 0.800, "weight": 1.18, "cat": "EOT Crane Breakdown"},
+    "Capacitor Bank Fault / Step Trip (Low PF)": {"pf": 0.780, "weight": 1.15, "cat": "Capacitor/Panel Fault"},
+    "GLD Alarm / Lining Leakage": {"pf": 0.880, "weight": 1.20, "cat": "Capacitor/Panel Fault"},
+    "Panel / SCR Tripping (Frequent ON-OFF)": {"pf": 0.840, "weight": 1.20, "cat": "Capacitor/Panel Fault"},
+    "Scrap / Charging / Slag Delay": {"pf": 0.860, "weight": 1.08, "cat": "Scrap/Slag Delay"},
+}
+
+def parse_time(t_str, base_dt=None, strict_after=False):
+    if not t_str: return None
+    clean = str(t_str).strip().upper().replace(".", ":")
+    for sfx in ("AM", "PM"):
+        if clean.endswith(sfx) and ":" not in clean:
+            num = clean[:-2].strip()
+            if num.isdigit(): clean = f"{num}:00 {sfx}"
+    for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M"):
         try:
-            d = datetime.strptime(s, f)
-            if b:
-                d = d.replace(year=b.year, month=b.month, day=b.day)
-                if d < b: d += timedelta(days=1)
-            return d
-        except: pass
+            dt = datetime.strptime(clean, fmt)
+            ref = base_dt or datetime.now()
+            dt = dt.replace(year=ref.year, month=ref.month, day=ref.day)
+            if base_dt and ((strict_after and dt <= base_dt) or (not strict_after and dt < base_dt)):
+                dt += timedelta(days=1)
+            return dt
+        except ValueError: pass
     return None
 
-def gn(v):
-    d = "".join(c for c in str(v) if c.isdigit())
-    return int(d) if d else 0
+def fmt_ampm(dt): return dt.strftime("%I:%M %p")
+def detect_shift(dt): return "Day (08:00 AM - 08:00 PM)" if 8 <= dt.hour < 20 else "Night (08:00 PM - 08:00 AM)"
+def meter_card(t_str, kwh, kvah, pf): return f"Time : {t_str}\nkWh  : {int(kwh):09d}\nkVAh : {int(kvah):09d}\nPF   : {pf:.3f}"
 
-def gf(v, df=16.5):
-    s = "".join(c for c in str(v) if c.isdigit() or c == ".")
-    try: return float(s) if s else df
-    except: return df
+with st.sidebar:
+    st.header("⚙️ Furnace Control")
+    curr_bench = float(db.get_state("benchmark_sec", "580.0"))
+    new_bench = st.number_input("Benchmark SEC (kWh/T)", 450.0, 800.0, curr_bench, 5.0)
+    if new_bench != curr_bench:
+        db.set_state("benchmark_sec", str(new_bench)); curr_bench = new_bench
+    st.divider()
+    camp_no = int(db.get_state("lining_campaign", "1"))
+    lining_cnt = int(db.get_state("lining_heat_count", "0"))
+    st.metric("Campaign #", f"Campaign {camp_no}")
+    st.metric("Lining Heat Count", f"{lining_cnt} Heats")
+    if lining_cnt > 22: st.error(f"🚨 RELINING ALERT: {lining_cnt} Heats (>22)!")
+    if st.button("🔄 Relining Reset", use_container_width=True):
+        db.reset_lining_campaign(); st.rerun()
 
-t1, t2 = st.tabs(["📋 15-Min Register", "🔥 Heat by Heat Report"])
+st.title("⚡ 16T Induction Furnace Energy & 15-Min Register")
+tab1, tab2, tab3, tab4 = st.tabs(["📟 1. Heat Entry", "🛠️ 2. Missed Split", "📊 3. Analytics", "📋 4. 15-Min Register"])
 
-with t1:
-    c1, c2 = st.columns(2)
-    ts, rs, fa = c1.text_input("Start Time", "8:00am"), c1.number_input("Start KVAH", value=249751728, step=1, format="%d"), c1.selectbox("A-Line", ["A1", "A2"])
-    te, re, fb = c2.text_input("End Time", "10:30am"), c2.number_input("End KVAH", value=249775482, step=1, format="%d"), c2.selectbox("B-Line", ["B1", "B2"], index=1)
-    uc = st.number_input("Cross-Verify Total (Optional)", value=0, step=1, format="%d")
-    tp = st.text_input("Tapping Times", placeholder="8:25am, 9:45am")
-    with st.expander("➕ Breakdown / Changeover / GLD"):
-        b1, b2, b3 = st.columns(3)
-        bf, bs, be = b1.selectbox("OFF Fur", ["None", "A", "B", "BOTH"]), b2.text_input("OFF Time"), b3.text_input("ON Time")
-        k1, k2 = st.columns(2)
-        ct, cm = k1.selectbox("Changeover", ["None", "A1->A2", "A2->A1", "B1->B2", "B2->B1"]), k2.text_input("Chg Time")
-        g1, g2 = st.columns(2)
-        gs, ge = g1.text_input("GLD Start"), g2.text_input("GLD End")
+with tab1:
+    lh = db.get_last_heat()
+    ds_t = lh["end_time"] if lh else "08:00 AM"
+    ds_kw = int(lh["end_kwh"]) if lh else 160132520
+    ds_kv = int(lh["end_kvah"]) if lh else 168914040
+    dh_no = int(lh["heat_no"]) + 1 if lh else 1
+    dl_no = int(db.get_state("lining_heat_count", "0")) + 1
+    ac_cmp = int(db.get_state("lining_campaign", "1"))
 
-    if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True):
-        ds = pt(ts)
-        de = pt(te, ds) if ds else None
-        if not ds or not de or re < rs: st.error("Time/Reading galat hai!")
-        else:
-            tu, sl, cur = int(re - rs), [], ds
-            while cur < de:
-                nx = min(cur + timedelta(minutes=15), de)
-                sl.append({"s": cur, "e": nx, "a": fa, "b": fb, "t": 0, "c": 0, "g": 0})
-                cur = nx
-            for x in tp.split(","):
-                dt = pt(x, ds)
-                if dt:
-                    for s in sl:
-                        if s["s"] <= dt < s["e"]: s["t"] = 1
-            if bf != "None" and bs.strip():
-                do, dn = pt(bs, ds), (de if be.strip().upper() in ("END", "") else pt(be, ds))
-                if do and dn:
-                    for s in sl:
-                        if s["s"] < dn and s["e"] > do:
-                            if bf in ("A", "BOTH"): s["a"] = "OFF"
-                            if bf in ("B", "BOTH"): s["b"] = "OFF"
-            if ct != "None" and cm.strip():
-                dc = pt(cm, ds)
-                if dc:
-                    for s in sl:
-                        if s["s"] >= dc:
-                            if ct == "A1->A2" and s["a"] != "OFF": s["a"] = "A2"
-                            elif ct == "A2->A1" and s["a"] != "OFF": s["a"] = "A1"
-                            elif ct == "B1->B2" and s["b"] != "OFF": s["b"] = "B2"
-                            elif ct == "B2->B1" and s["b"] != "OFF": s["b"] = "B1"
-                        if s["s"] <= dc < s["e"]: s["c"] = 1
-            if gs.strip() and ge.strip():
-                d1, d2 = pt(gs, ds), pt(ge, ds)
-                if d1 and d2:
-                    for s in sl:
-                        if s["s"] < d2 and s["e"] > d1: s["g"] = 1
-            wt, pw = [], 0.0
-            for i, s in enumerate(sl):
-                dr = ((s["e"] - s["s"]).total_seconds() / 60.0) / 15.0
-                ao, bo = s["a"] == "OFF", s["b"] == "OFF"
-                if ao and bo: w = random.uniform(0.05, 0.12)
-                elif ao or bo: w = random.uniform(0.32, 0.44) if s["t"] else random.uniform(0.48, 0.72)
-                elif s["g"]: w = random.uniform(0.50, 0.85)
-                elif s["t"]: w = random.uniform(0.62, 0.78)
-                elif s["c"]: w = random.uniform(0.58, 0.76)
-                else:
-                    w = random.uniform(*[(0.82, 0.96), (1.04, 1.22), (1.28, 1.48)][i % 3])
-                    if abs(w - pw) < 0.1: w += 0.14 if w < 1.25 else -0.15
-                pw = w; wt.append(w * dr)
-            tw, rd, cr = sum(wt), [int(rs)], int(rs)
-            for i in range(len(sl)):
-                cr = int(re) if i == len(sl) - 1 else cr + round((wt[i] / tw) * tu)
-                rd.append(cr)
-            rw = [{"Time": ds.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(rs)), "Unit": "-", "Status": f"{fa}+{fb}"}]
-            for i, s in enumerate(sl):
-                lb = f"{s['a']}+{s['b']}" + (" (GLD)" if s["g"] else (" (Tap)" if s["t"] else ""))
-                rw.append({"Time": s["e"].strftime('%I:%M %p').lstrip('0'), "KVAH": str(rd[i+1]), "Unit": str(rd[i+1]-rd[i]), "Status": lb})
-            st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success(f"Total Units: {tu}")
-            if uc > 0: st.info("✅ MATCH!" if tu == int(uc) else f"⚠️ Farq: {tu-int(uc):+d}")
+    c1, c2, c3, c4 = st.columns(4)
+    log_dt = c1.date_input("Log Date", value=date.today())
+    heat_no = c2.number_input("Heat No.", 1, 99999, dh_no, 1)
+    lining_h_no = c3.number_input("Lining Heat #", 1, 500, dl_no, 1)
+    tapped_tons = c4.number_input("Tapped Tons", 1.0, 22.0, 16.0, 0.1)
 
-with t2:
-    st.caption("⚡ Units = Melting Ton × Target u/Ton | Long Heat (>2.5h), CCM Hold, GLD & Sintering Auto-PF")
-    rm = st.radio("Reading Mode:", ["Direct (Diff × 8)", "Decimal ((Diff ÷ 10) × 8)"], horizontal=True)
-    h1, h2 = st.columns(2)
-    ks, vs = gn(h1.text_input("Start kWh", "16013252")), gn(h1.text_input("Start kVAh", "16891404"))
-    ke, ve = gn(h2.text_input("End kWh", "16017723")), gn(h2.text_input("End kVAh", "16896265"))
-    nh = st.selectbox("Kitni Heats hain?", list(range(1, 16)), index=3)
-    hl = []
-    for i in range(1, int(nh) + 1):
-        st.markdown(f"**Heat #{i}**")
-        r1, r2, r3 = st.columns(3)
-        ht = r1.selectbox("Heat Type", ["Normal", "Sintering"], key=f"ht_{i}")
-        ut_sel = r2.selectbox("Target u/Ton", ["Auto (698)", "Fast (593)", "Heavy (768)", "Custom"], key=f"ut_{i}")
-        ton_m = gf(r3.text_input("Melt (Ton)", "16.5", key=f"m_{i}"), 16.5)
+    m1, m2 = st.columns(2)
+    s_t_in = m1.text_input("Start Time (AM/PM)", ds_t)
+    s_kw_in = m1.number_input("Start kWh", 0, 999999999, ds_kw, 1, "%d")
+    s_kv_in = m1.number_input("Start kVAh", 0, 999999999, ds_kv, 1, "%d")
+    s_pf_in = m1.number_input("Start PF (0.xxx)", 0.600, 0.980, 0.940, 0.001, "%.3f")
 
-        x1, x2, x3, x4 = st.columns(4)
-        on_t = x1.text_input("ON", "8:00am", key=f"o_{i}")
-        tp_t = x2.text_input("TAP", "10:00am", key=f"p_{i}")
-        ccm_m = gn(x3.text_input("CCM Hold(m)", "0", key=f"c_{i}"))
-        bd_m = gn(x4.text_input("BD(m)", "0", key=f"b_{i}"))
+    dts0 = parse_time(s_t_in)
+    e_t_in = m2.text_input("End Time (AM/PM)", fmt_ampm(dts0 + timedelta(hours=2)) if dts0 else "10:00 AM")
+    e_kw_in = m2.number_input("End kWh", 0, 999999999, ds_kw + 1160, 1, "%d")
+    e_kv_in = m2.number_input("End kVAh", 0, 999999999, ds_kv + 1234, 1, "%d")
+    cond_sel = m2.selectbox("Heat Run Condition", list(CONDITIONS.keys()))
 
-        gc1, gc2 = st.columns(2)
-        gc = gc1.checkbox("⚡ GLD / Trip?", key=f"g_{i}")
-        cust_ut = gf(gc2.text_input("Custom u/T", "698", key=f"cu_{i}"), 698.0) if ut_sel == "Custom" else 0.0
-        hl.append((i, ht, ut_sel, cust_ut, ton_m, on_t, tp_t, ccm_m, bd_m, gc))
+    d1, d2, d3 = st.columns(3)
+    use_cpf = d1.checkbox("Auto-use Calculated PF", value=True)
+    hold_m = d2.number_input("Holding / BD Mins", 0, 360, 0, 5)
 
-    st.button("🔥 GENERATE / REFRESH HEAT REPORT", type="primary", use_container_width=True)
-    dv = 10.0 if "Decimal" in rm else 1.0
-    tk, tv = round((ke - ks) / dv), round((ve - vs) / dv)
-    if ke <= ks or ve <= vs or tk >= tv:
-        st.error("Reading check karein! (End > Start aur kWh Diff < kVAh Diff hona chahiye)")
+    r_kw_d, r_kv_d = int(e_kw_in - s_kw_in), int(e_kv_in - s_kv_in)
+    act_kw, act_kv = r_kw_d * MF, r_kv_d * MF
+    raw_pf = round(act_kw / act_kv, 3) if act_kv > 0 else 0.0
+    cap_pf = min(0.980, max(0.600, raw_pf)) if act_kv > 0 else CONDITIONS[cond_sel]["pf"]
+    inst_pf = d3.number_input("End Meter PF", 0.600, 0.980, cap_pf if use_cpf else CONDITIONS[cond_sel]["pf"], 0.001, "%.3f")
+
+    sec_v, kvt_v = round(act_kw / tapped_tons, 1), round(act_kv / tapped_tons, 1)
+    eh_kw = round(hold_m * 25.0, 1)
+    ex_kw = round(max(0.0, act_kw - (tapped_tons * curr_bench)), 1)
+    lp_kv = round(max(0.0, act_kv - (act_kw / 0.950)), 1)
+
+    dt_s = parse_time(s_t_in)
+    dt_e = parse_time(e_t_in, dt_s, True) if dt_s else None
+    shf_auto = detect_shift(dt_e) if dt_e else "Day (08:00 AM - 08:00 PM)"
+
+    p1, p2, p3 = st.columns(3)
+    p1.code(meter_card(fmt_ampm(dt_s) if dt_s else s_t_in, s_kw_in, s_kv_in, s_pf_in), language=None)
+    p2.code(meter_card(fmt_ampm(dt_e) if dt_e else e_t_in, e_kw_in, e_kv_in, inst_pf), language=None)
+    p3.code(f"Heat #{heat_no} | {act_kw:,} kWh ({sec_v} u/T)\nkVAh: {act_kv:,} | Calc PF: {raw_pf:.3f}\nHold: {eh_kw} kWh | Loss: {ex_kw} kWh", language=None)
+
+    errs = list()
+    if not dt_s or not dt_e: errs.append("Valid AM/PM Time daalein.")
+    if r_kw_d <= 0 or r_kv_d <= 0: errs.append("End Reading Start se badi honi chahiye.")
+    if not (0.600 <= raw_pf <= 0.980): errs.append(f"PF ({raw_pf:.3f}) 0.600–0.980 ke beech hona chahiye!")
+    for er in errs: st.error(er)
+
+    if st.button("💾 Save Heat Entry", type="primary", use_container_width=True, disabled=bool(errs)):
+        db.insert_heat({
+            "log_date": log_dt.strftime("%Y-%m-%d"), "shift": shf_auto, "lining_campaign": ac_cmp,
+            "lining_heat_no": int(lining_h_no), "heat_no": int(heat_no), "start_time": fmt_ampm(dt_s),
+            "end_time": fmt_ampm(dt_e), "start_kwh": int(s_kw_in), "end_kwh": int(e_kw_in),
+            "start_kvah": int(s_kv_in), "end_kvah": int(e_kv_in), "actual_kwh": act_kw,
+            "actual_kvah": act_kv, "calc_pf": float(cap_pf), "inst_pf": float(inst_pf),
+            "tapped_tons": float(tapped_tons), "sec_kwh_ton": sec_v, "kvah_per_ton": kvt_v,
+            "run_condition": cond_sel, "holding_mins": int(hold_m), "est_holding_kwh": eh_kw,
+            "extra_loss_kwh": ex_kw, "low_pf_extra_kvah": lp_kv, "benchmark_sec": curr_bench, "entry_mode": "SINGLE"
+        })
+        st.rerun()
+# --- END PART 1 ---
+with tab2:
+    lh2 = db.get_last_heat()
+    bst_d = lh2["end_time"] if lh2 else "08:00 AM"
+    bskw_d = int(lh2["end_kwh"]) if lh2 else 160132520
+    bskv_d = int(lh2["end_kvah"]) if lh2 else 168914040
+    nh_no = int(lh2["heat_no"]) + 1 if lh2 else 1
+    nl_no = int(db.get_state("lining_heat_count", "0")) + 1
+
+    st1, st2 = st.columns(2)
+    sp_dt = st1.date_input("Block Date", value=date.today(), key="sp_d")
+    n_miss = st2.number_input("Missed Heats Count", 2, 12, 3, 1)
+
+    bc1, bc2 = st.columns(2)
+    bst = bc1.text_input("Last Known Time", bst_d, key="bst")
+    bskw = bc1.number_input("Last Known kWh", 0, 999999999, bskw_d, 1, "%d", key="bsk")
+    bskv = bc1.number_input("Last Known kVAh", 0, 999999999, bskv_d, 1, "%d", key="bsv")
+    bet = bc2.text_input("Current Time", "02:30 PM", key="bet")
+    bekw = bc2.number_input("Current kWh", 0, 999999999, bskw_d + 1180 * int(n_miss), 1, "%d", key="bek")
+    bekv = bc2.number_input("Current kVAh", 0, 999999999, bskv_d + 1310 * int(n_miss), 1, "%d", key="bev")
+
+    m_rows = list()
+    for i in range(int(n_miss)):
+        x1, x2, x3, x4, x5, x6 = st.columns(6)
+        mh = x1.number_input("Heat#", 1, 99999, nh_no + i, 1, key=f"mh_{i}")
+        ms = x2.selectbox("Shift", ["Auto", "Day (08:00 AM - 08:00 PM)", "Night (08:00 PM - 08:00 AM)"], key=f"ms_{i}")
+        mt = x3.number_input("Tons", 1.0, 22.0, 16.0, 0.1, key=f"mt_{i}")
+        mc = x4.selectbox("Condition", list(CONDITIONS.keys()), key=f"mc_{i}")
+        md = x5.number_input("Hold(m)", 0, 300, 0, 5, key=f"md_{i}")
+        mp = x6.number_input("PF", 0.600, 0.980, CONDITIONS[mc]["pf"], 0.001, "%.3f", key=f"mp_{i}")
+        m_rows.append({"hno": int(mh), "lno": nl_no + i, "shf": ms, "tons": float(mt), "cond": mc, "hm": int(md), "tpf": float(mp), "wt": CONDITIONS[mc]["weight"]})
+
+    bds = parse_time(bst)
+    bde = parse_time(bet, bds, True) if bds else None
+    tkw_r, tkv_r = int(bekw - bskw), int(bekv - bskv)
+    bpf = round(tkw_r / tkv_r, 3) if tkv_r > 0 else 0.0
+
+    if not bds or not bde or tkw_r <= int(n_miss)*10 or not (0.600 <= bpf <= 0.980):
+        st.error(f"Check Block Time, Readings & Block PF ({bpf:.3f} must be 0.600–0.980)!")
     else:
-        ph, fd, ok = [], None, 1
-        for i, ht, ut_s, c_ut, tm_ton, on, tp2, ccm, bm, gc in hl:
-            d1 = pt(on, fd)
-            if i == 1: fd = d1
-            d2 = pt(tp2, d1) if d1 else None
-            if not d1 or not d2: st.warning(f"Heat #{i} time galat!"); ok = 0; break
-            dur_m = (d2 - d1).total_seconds() / 60.0
-            if dur_m <= 0: dur_m = 120.0
+        k_sc = [(r["tons"] * r["wt"]) + ((r["hm"] * 25.0 / MF) * 0.025) for r in m_rows]
+        t_sc = sum(k_sc)
+        kw_al = [max(5, round((s / t_sc) * tkw_r)) for s in k_sc]
+        kw_al[-1] += (tkw_r - sum(kw_al))
+        v_sc = [kw_al[i] / m_rows[i]["tpf"] for i in range(len(m_rows))]
+        tv_sc = sum(v_sc)
+        kv_al = [max(6, round((s / tv_sc) * tkv_r)) for s in v_sc]
+        kv_al[-1] += (tkv_r - sum(kv_al))
 
-            # 1. Kwh Units STRICTLY Melting Ton x u/Ton ke hisab se (chahe 3hr mein 12T ho)
-            if ut_s == "Custom": base_ut = random.uniform(c_ut - 8, c_ut + 8)
-            elif "593" in ut_s: base_ut = random.uniform(586, 608)
-            elif "768" in ut_s: base_ut = random.uniform(752, 778)
-            elif ht == "Sintering": base_ut = random.uniform(775, 830)
-            else: base_ut = random.uniform(685, 712)
+        for _ in range(10000):
+            bad = False
+            for i in range(len(m_rows)):
+                mn_v, mx_v = int((kw_al[i] / 0.980) + 0.9999), int(kw_al[i] / 0.600)
+                if kv_al[i] < mn_v:
+                    for j in range(len(m_rows)):
+                        if i != j and kv_al[j] - 1 >= int((kw_al[j] / 0.980) + 0.9999):
+                            kv_al[i] += 1; kv_al[j] -= 1; bad = True; break
+                elif kv_al[i] > mx_v:
+                    for j in range(len(m_rows)):
+                        if i != j and kv_al[j] + 1 <= int(kw_al[j] / 0.600):
+                            kv_al[i] -= 1; kv_al[j] += 1; bad = True; break
+            if not bad: break
 
-            # CCM Holding mein holding power ka halka unit judega
-            est_kwh = (tm_ton * base_ut) + (ccm * 14.0) + (bm * 5.0)
+        tot_m = (bde - bds).total_seconds() / 60.0
+        tw_l = [(r["tons"] * r["wt"]) + (r["hm"] * 0.35) for r in m_rows]
+        ttw = sum(tw_l)
+        recs, c_dt, c_kw, c_kv = list(), bds, int(bskw), int(bskv)
+        ac_c2 = int(db.get_state("lining_campaign", "1"))
 
-            # 2. Power Factor Logic: Sintering, GLD, CCM Hold, aur Long Heat (>155m / 3hr low ton)
-            pf_hi = 0.986
-            pf_lo = 0.948
-            tags = []
-            if ht == "Sintering":
-                pf_lo, pf_hi = 0.805, 0.885
+        for i, r in enumerate(m_rows):
+            if i == len(m_rows) - 1: ndt, nkw, nkv = bde, int(bekw), int(bekv)
             else:
-                if dur_m >= 155 or (dur_m >= 135 and tm_ton <= 13.5):
-                    pf_lo -= 0.055; pf_hi -= 0.045; tags.append("Long")
-                if ccm >= 10:
-                    drop = min(0.065, (ccm / 60.0) * 0.055)
-                    pf_lo -= drop; pf_hi -= drop; tags.append("CCM-Hold")
-            if gc:
-                pf_lo -= 0.045; pf_hi -= 0.040; tags.append("GLD")
+                sm = max(15, round((tw_l[i] / ttw) * tot_m))
+                ndt = min(bde - timedelta(minutes=5 * (len(m_rows) - 1 - i)), c_dt + timedelta(minutes=sm))
+                nkw, nkv = c_kw + kw_al[i], c_kv + kv_al[i]
+            akw, akv = (nkw - c_kw) * MF, (nkv - c_kv) * MF
+            cpf = min(0.980, max(0.600, round(akw / akv, 3)))
+            recs.append({
+                "log_date": sp_dt.strftime("%Y-%m-%d"), "shift": detect_shift(ndt) if r["shf"] == "Auto" else r["shf"],
+                "lining_campaign": ac_c2, "lining_heat_no": r["lno"], "heat_no": r["hno"],
+                "start_time": fmt_ampm(c_dt), "end_time": fmt_ampm(ndt), "start_kwh": c_kw, "end_kwh": nkw,
+                "start_kvah": c_kv, "end_kvah": nkv, "actual_kwh": akw, "actual_kvah": akv,
+                "calc_pf": cpf, "inst_pf": r["tpf"], "tapped_tons": r["tons"],
+                "sec_kwh_ton": round(akw / r["tons"], 1), "kvah_per_ton": round(akv / r["tons"], 1),
+                "run_condition": r["cond"], "holding_mins": r["hm"], "est_holding_kwh": round(r["hm"] * 25.0, 1),
+                "extra_loss_kwh": round(max(0.0, akw - r["tons"] * curr_bench), 1),
+                "low_pf_extra_kvah": round(max(0.0, akv - akw / 0.950), 1),
+                "benchmark_sec": curr_bench, "entry_mode": "SPLIT_RECOVERY"
+            })
+            c_dt, c_kw, c_kv = ndt, nkw, nkv
 
-            pf_lo = max(0.785, pf_lo)
-            pf_hi = max(pf_lo + 0.025, min(0.992, pf_hi))
-            t_pf = random.uniform(pf_lo, pf_hi)
-            rem_str = "+".join(tags) if tags else "Clean"
-            ph.append({"n": i, "ht": ht, "rem": rem_str, "ton": tm_ton, "dur": int(dur_m), "t": d2, "ekw": est_kwh, "ekv": est_kwh / t_pf, "pfr": (pf_lo, pf_hi)})
+        pcols = st.columns(min(3, len(recs)))
+        for i, rc in enumerate(recs):
+            pcols[i % len(pcols)].code(f"--- Heat #{rc['heat_no']} ---\n" + meter_card(rc["end_time"], rc["end_kwh"], rc["end_kvah"], rc["calc_pf"]) + f"\nkWh: {rc['actual_kwh']} ({rc['sec_kwh_ton']} u/T) | kVAh: {rc['actual_kvah']}", language=None)
+        if st.button("✅ Save Reconstructed Heats", type="primary", use_container_width=True):
+            db.insert_bulk_heats(recs); st.rerun()
 
-        if ok and ph:
-            sk = tk / sum(x["ekw"] for x in ph)
-            sv = tv / sum(x["ekv"] for x in ph)
-            for x in ph:
-                x["ks"] = max(8, round(x["ekw"] * sk))
-                lo, hi = x["pfr"]
-                v_raw = round(x["ekv"] * sv)
-                v_min = max(x["ks"] + 1, round(x["ks"] / hi))
-                v_max = max(v_min, round(x["ks"] / lo))
-                x["vs"] = max(v_min, min(v_max, v_raw))
+with tab3:
+    dfa = db.fetch_heats_df()
+    if dfa.empty: st.info("No heats saved yet.")
+    else:
+        tkw_s, tkv_s, ttn_s = int(dfa["actual_kwh"].sum()), int(dfa["actual_kvah"].sum()), dfa["tapped_tons"].sum()
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Heats / Tons", f"{len(dfa)} / {ttn_s:,.1f} T")
+        k2.metric("Total kWh / kVAh", f"{tkw_s:,} / {tkv_s:,}")
+        k3.metric("Avg SEC / PF", f"{(tkw_s/ttn_s):,.1f} u/T | {min(0.98, tkw_s/tkv_s):.3f}")
+        k4.metric("Hold Loss / Low-PF", f"{dfa['est_holding_kwh'].sum():,.0f} kWh | {dfa['low_pf_extra_kvah'].sum():,.0f}")
+        dfa["Category"] = dfa["run_condition"].map(lambda x: CONDITIONS.get(x, {"cat": "Other"})["cat"])
+        st.bar_chart(dfa.groupby("Category")[["extra_loss_kwh", "est_holding_kwh"]].sum())
+        st.dataframe(dfa, use_container_width=True, hide_index=True)
+        dc1, dc2 = st.columns(2)
+        dc1.download_button("⬇️ CSV", dfa.to_csv(index=False).encode("utf-8"), "Heats.csv", "text/csv", use_container_width=True)
+        ebuf = io.BytesIO()
+        with pd.ExcelWriter(ebuf, engine="openpyxl") as wr: dfa.to_excel(wr, index=False)
+        dc2.download_button("📗 Excel (.xlsx)", ebuf.getvalue(), "Heats.xlsx", use_container_width=True)
 
-            # Exact kWh balance (8 factor steps)
-            dks = tk - sum(x["ks"] for x in ph)
-            for _ in range(30000):
-                if dks == 0: break
-                ix = random.randrange(len(ph))
-                st_k = 1 if dks > 0 else -1
-                if 8 <= ph[ix]["ks"] + st_k < int(ph[ix]["vs"] * 0.994):
-                    ph[ix]["ks"] += st_k; dks -= st_k
-
-            # Exact kVAh balance keeping each heat's PF strictly inside situation range (< 0.995)
-            dvs = tv - sum(x["vs"] for x in ph)
-            for _ in range(40000):
-                if dvs == 0: break
-                ix = random.randrange(len(ph))
-                lo, hi = ph[ix]["pfr"]
-                v_mn = max(ph[ix]["ks"] + 1, round(ph[ix]["ks"] / hi))
-                v_mx = max(v_mn, round(ph[ix]["ks"] / lo))
-                if dvs > 0 and ph[ix]["vs"] < v_mx: ph[ix]["vs"] += 1; dvs -= 1
-                elif dvs < 0 and ph[ix]["vs"] > v_mn: ph[ix]["vs"] -= 1; dvs += 1
-            for _ in range(40000):
-                if dvs == 0: break
-                ix = random.randrange(len(ph))
-                h_mn = max(ph[ix]["ks"] + 1, int(ph[ix]["ks"] / 0.994))
-                h_mx = max(h_mn, int(ph[ix]["ks"] / 0.760))
-                if dvs > 0 and ph[ix]["vs"] < h_mx: ph[ix]["vs"] += 1; dvs -= 1
-                elif dvs < 0 and ph[ix]["vs"] > h_mn: ph[ix]["vs"] -= 1; dvs += 1
-
-            tot_ton = sum(x["ton"] for x in ph)
-            st.success(f"✅ Total Melt: {tot_ton:.2f} T | Kwh: {tk*8} ({round((tk*8)/tot_ton)} u/T) | Kvah: {tv*8} | Overall Pf: {(tk/tv):.3f}")
-            hr, txt = [], ""
-            for x in ph:
-                ku, vu = x["ks"] * 8, x["vs"] * 8
-                pf = ku / vu if vu > 0 else 0
-                tc = x["t"].strftime('%I:%M %p').lstrip('0')
-                ut_val = round(ku / x["ton"]) if x["ton"] > 0 else 0
-                hr.append({
-                    "Heat": f"#{x['n']}",
-                    "Heat Type": x["ht"],
-                    "Status": x["rem"],
-                    "Melt(T)": x["ton"],
-                    "u/Ton": ut_val,
-                    "TAP": tc,
-                    "Kwh": ku,
-                    "Kvah": vu,
-                    "PF": f"{pf:.3f}"
-                })
-                txt += f"--- Heat #{x['n']} ({x['ht']}) ---\nHeat Taping Time : {tc}\nMelting Ton      : {x['ton']} T ({ut_val} u/T)\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf:.3f}\n\n"
-            st.dataframe(pd.DataFrame(hr), use_container_width=True, hide_index=True)
-            st.code(txt.strip(), language=None)
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-# DONE
+with tab4:
+    rc1, rc2 = st.columns(2)
+    ts4, rs4, fa4 = rc1.text_input("Start Time", "8:00am"), rc1.number_input("Start KVAH", 0, 999999999, 249751728, 1, "%d"), rc1.selectbox("A-Line", ["A1", "A2"])
+    te4, re4, fb4 = rc2.text_input("End Time", "10:30am"), rc2.number_input("End KVAH", 0, 999999999, 249775482, 1, "%d"), rc2.selectbox("B-Line", ["B1", "B2"], index=1)
+    uc4 = st.number_input("Cross-Verify Total (Optional)", 0, 99999999, 0, 1, "%d")
+    tp4 = st.text_input("Tapping Times", placeholder="8:25am, 9:45am")
+    if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True):
+        ds4 = parse_time(ts4)
+        de4 = parse_time(te4, ds4, True) if ds4 else None
+        if ds4 and de4 and re4 >= rs4:
+            tu4, sl4, cur4 = int(re4 - rs4), list(), ds4
+            while cur4 < de4:
+                nx4 = min(cur4 + timedelta(minutes=15), de4)
+                sl4.append({"s": cur4, "e": nx4, "t": 0}); cur4 = nx4
+            for x in tp4.split(","):
+                dt = parse_time(x, ds4)
+                if dt:
+                    for s in sl4:
+                        if s["s"] <= dt < s["e"]: s["t"] = 1
+            wt4 = [(random.uniform(0.62, 0.78) if s["t"] else random.uniform(*[(0.82, 0.96), (1.04, 1.22), (1.28, 1.48)][i % 3])) * (((s["e"] - s["s"]).total_seconds() / 60.0) / 15.0) for i, s in enumerate(sl4)]
+            tw4, rd4, cr4 = sum(wt4), [int(rs4)], int(rs4)
+            for i in range(len(sl4)):
+                cr4 = int(re4) if i == len(sl4) - 1 else cr4 + round((wt4[i] / tw4) * tu4)
+                rd4.append(cr4)
+            rw4 = [{"Time": ds4.strftime('%I:%M %p').lstrip('0'), "KVAH": str(int(rs4)), "Unit": "-", "Status": f"{fa4}+{fb4}"}]
+            for i, s in enumerate(sl4):
+                rw4.append({"Time": s["e"].strftime('%I:%M %p').lstrip('0'), "KVAH": str(rd4[i+1]), "Unit": str(rd4[i+1]-rd4[i]), "Status": f"{fa4}+{fb4}" + (" (Tap)" if s["t"] else "")})
+            st.dataframe(pd.DataFrame(rw4), use_container_width=True, hide_index=True)
+            st.success(f"Total Units: {tu4}")
+            if uc4 > 0: st.info("✅ MATCH!" if tu4 == int(uc4) else f"⚠️ Farq: {tu4 - int(uc4):+d}")
+# --- END PART 2 ---
