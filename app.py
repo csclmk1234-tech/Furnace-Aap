@@ -71,7 +71,6 @@ with tab1:
 
     tot_pf = round(tot_kwh / tot_kvah, 3) if tot_kvah > 0 else 0.0
 
-    # Saaf Minus Aur Total Box
     st.info(
         f"➖ **Reading Minus:** kWh Diff = `{diff_kwh:,}` | kVAh Diff = `{diff_kvah:,}`\n\n"
         f"📊 **Total kWh Units:** `{tot_kwh:,}`  |  **Total kVAh Units:** `{tot_kvah:,}`  |  **Overall PF:** `{tot_pf:.3f}`"
@@ -81,6 +80,7 @@ with tab1:
     n_heats = st.number_input("Total Heats (1 se 25 tak)", min_value=1, max_value=25, value=3, step=1, format="%d")
 
     st.markdown("### 3️⃣ Har Heat Ka Time & Situation Chunein")
+    st.caption("💡 Tip: Time type karne ke baad keyboard par Enter (✔️) dabayein ya bahar click karein, Total Time turant apne aap nikal aayega.")
     heats_data = list()
     prev_tap = datetime.strptime("08:00 AM", "%I:%M %p")
 
@@ -89,7 +89,7 @@ with tab1:
             def_on = prev_tap.strftime("%I:%M %p").lstrip("0")
             def_tap = (prev_tap + timedelta(hours=2)).strftime("%I:%M %p").lstrip("0")
 
-            r1, r2, r3 = st.columns(3)
+            r1, r2, r3 = st.columns([1.1, 1.1, 1.2])
             on_str = r1.text_input(f"Heat #{i} ON Time", value=def_on, key=f"on_{i}")
             tap_str = r2.text_input(f"Heat #{i} TAP Time", value=def_tap, key=f"tap_{i}")
 
@@ -97,20 +97,20 @@ with tab1:
             d_tap = parse_t(tap_str, d_on) if d_on else None
             if d_on and d_tap:
                 dur_m = int((d_tap - d_on).total_seconds() // 60)
-                dur_txt = f"{dur_m // 60}h {dur_m % 60}m"
+                dur_txt = f"{dur_m // 60} hr {dur_m % 60} min"
                 prev_tap = d_tap
+                r3.markdown(f"**⏱️ Total Time**<br><span style='font-size:18px; color:#16a34a; font-weight:700;'>{dur_txt}</span> `({dur_m}m)`", unsafe_allow_html=True)
             else:
-                dur_m, dur_txt = 120, "Check Time"
+                dur_m, dur_txt = 120, "Galat Time!"
+                r3.markdown("**⏱️ Total Time**<br><span style='color:#dc2626; font-weight:700;'>⚠️ Time Check Karein</span>", unsafe_allow_html=True)
 
-            r3.text_input("Total Time", value=dur_txt, disabled=True, key=f"dur_{i}")
-
-            b1, b2, b3 = st.columns(3)
+            b1, b2, b3 = st.columns([1.8, 0.8, 0.8])
             cond = b1.selectbox("Situation / Problem", list(CONDITIONS.keys()), key=f"cnd_{i}")
             tons = b2.number_input("Melt (Ton)", 1.0, 22.0, 16.0, 0.5, key=f"ton_{i}")
             hold_m = b3.number_input("Hold(m)", 0, 300, 0, 5, format="%d", key=f"hld_{i}")
 
             heats_data.append({
-                "no": i, "on": on_str,
+                "no": i, "on": d_on.strftime("%I:%M %p").lstrip("0") if d_on else on_str,
                 "tap_str": d_tap.strftime("%I:%M %p").lstrip("0") if d_tap else tap_str,
                 "dur_m": max(15, dur_m), "dur_txt": dur_txt, "cond": cond,
                 "tons": tons, "hold_m": hold_m,
@@ -121,14 +121,16 @@ with tab1:
         if tot_kwh <= 0 or tot_kvah <= 0:
             st.error("⚠️ End Reading Start Reading se badi honi chahiye!")
         elif not (0.600 <= tot_pf <= 0.995):
-            st.error(f"⚠️ Overall PF ({tot_pf:.3f}) galat hai! kVAh Units hamesha kWh Units se zyada honi chahiye (PF 0.600 se 0.995 ke beech).")
+            st.error(f"⚠️ Overall PF ({tot_pf:.3f}) galat hai! kVAh Units hamesha kWh Units se zyada honi chahiye.")
         elif int(n_heats) == 1:
             h = heats_data[0]
-            pf1 = min(0.990, tot_pf)
+            pf1 = min(0.992, tot_pf)
             st.success(f"✅ Single Heat Report Ready! ({round(tot_kwh / h['tons'], 1)} u/Ton)")
             st.code(
                 f"--- Heat #1 ---\n"
-                f"Heat Taping Time : {h['tap_str']} ({h['dur_txt']})\n"
+                f"Heat ON Time     : {h['on']}\n"
+                f"Heat Taping Time : {h['tap_str']}\n"
+                f"Total Time       : {h['dur_txt']}\n"
                 f"Kwh units        : {tot_kwh}\n"
                 f"Kvah units       : {tot_kvah}\n"
                 f"Pf.              : {pf1:.3f}",
@@ -138,7 +140,7 @@ with tab1:
             kw_pool = tot_kwh // step_mult
             kv_pool = tot_kvah // step_mult
 
-            k_sc = [((h["tons"] * 0.65 + (h["dur_m"] / 7.5) * 0.35) * h["wt"] * random.uniform(0.975, 1.025)) + (h["hold_m"] * 0.25) for h in heats_data]
+            k_sc = [((h["tons"] * 0.60 + (h["dur_m"] / 7.5) * 0.40) * h["wt"] * random.uniform(0.975, 1.025)) + (h["hold_m"] * 0.25) for h in heats_data]
             t_sc = sum(k_sc)
             k_st = [max(5, round((s / t_sc) * kw_pool)) for s in k_sc]
             k_st[-1] += (kw_pool - sum(k_st))
@@ -171,12 +173,12 @@ with tab1:
                 cond_short = h["cond"].split("(")[0].strip()
                 rows.append({
                     "Heat #": f"Heat #{h['no']}", "ON - TAP": f"{h['on']} - {h['tap_str']}",
-                    "Time": h["dur_txt"], "Condition": cond_short, "Tons": h["tons"],
+                    "Total Time": h["dur_txt"], "Condition": cond_short, "Tons": h["tons"],
                     "u/Ton": round(ku / h["tons"], 1), "Kwh Units": ku, "Kvah Units": vu, "PF": f"{pf_i:.3f}"
                 })
                 copy_txt += (
                     f"--- Heat #{h['no']} ---\n"
-                    f"Heat Taping Time : {h['tap_str']}\n"
+                    f"Heat ON - TAP    : {h['on']} - {h['tap_str']} ({h['dur_txt']})\n"
                     f"Kwh units        : {ku}\n"
                     f"Kvah units       : {vu}\n"
                     f"Pf.              : {pf_i:.3f}\n\n"
