@@ -36,42 +36,49 @@ def parse_t(t_str, base_dt=None):
             pass
     return None
 
-with st.sidebar:
-    st.header("⚙️ Meter Formula")
-    m_mode = st.radio(
-        "Unit Calculation Mode:",
-        ["9-Digit Meter (((End - Start) ÷ 10) × 8)", "Direct Whole (((End - Start) × 8))"],
-        index=0
-    )
-    DIV = 10.0 if "÷ 10" in m_mode else 1.0
-
 tab1, tab2 = st.tabs(["🔥 Heat-by-Heat Report", "📋 15-Min KVAH Register"])
 
-# =========================================================
-# TAB 1: SINGLE CLEAN HEAT-BY-HEAT CALCULATOR (NO .00)
-# =========================================================
 with tab1:
-    st.markdown("### 1️⃣ Start & End Meter Reading (Bina .00 ke)")
-    c1, c2 = st.columns(2)
-    s_kwh = c1.number_input("Start kWh Reading", min_value=0, max_value=9999999999, value=160132500, step=1, format="%d")
-    e_kwh = c2.number_input("End kWh Reading", min_value=0, max_value=9999999999, value=160171500, step=1, format="%d")
-    s_kvah = c1.number_input("Start kVAh Reading", min_value=0, max_value=9999999999, value=168914000, step=1, format="%d")
-    e_kvah = c2.number_input("End kVAh Reading", min_value=0, max_value=9999999999, value=168954460, step=1, format="%d")
+    st.markdown("### 1️⃣ Meter Formula Aur Reading Daalein")
+    f_mode = st.radio(
+        "Aapke Meter Ka Formula Kya Hai?",
+        ["(End - Start) × 8", "End - Start (Direct Difference)", "((End - Start) ÷ 10) × 8"],
+        index=0,
+        horizontal=True
+    )
 
-    # Exact 8-Factor Steps (e.g. Diff 39000 / 10 = 3900 steps * 8 = 31,200 Units!)
-    kw_steps = round((e_kwh - s_kwh) / DIV)
-    kv_steps = round((e_kvah - s_kvah) / DIV)
-    tot_kwh = int(kw_steps * 8)
-    tot_kvah = int(kv_steps * 8)
+    c1, c2 = st.columns(2)
+    s_kwh = c1.number_input("Start kWh Reading", min_value=0, max_value=9999999999, value=16013250, step=1, format="%d")
+    e_kwh = c2.number_input("End kWh Reading", min_value=0, max_value=9999999999, value=16017150, step=1, format="%d")
+    s_kvah = c1.number_input("Start kVAh Reading", min_value=0, max_value=9999999999, value=16891400, step=1, format="%d")
+    e_kvah = c2.number_input("End kVAh Reading", min_value=0, max_value=9999999999, value=16895446, step=1, format="%d")
+
+    diff_kwh = int(e_kwh - s_kwh)
+    diff_kvah = int(e_kvah - s_kvah)
+
+    if f_mode == "(End - Start) × 8":
+        tot_kwh = diff_kwh * 8
+        tot_kvah = diff_kvah * 8
+        step_mult = 8
+    elif f_mode == "End - Start (Direct Difference)":
+        tot_kwh = diff_kwh
+        tot_kvah = diff_kvah
+        step_mult = 1
+    else:
+        tot_kwh = round((diff_kwh / 10.0) * 8)
+        tot_kvah = round((diff_kvah / 10.0) * 8)
+        step_mult = 1
+
     tot_pf = round(tot_kwh / tot_kvah, 3) if tot_kvah > 0 else 0.0
 
-    if tot_kwh > 0 and tot_kvah > 0:
-        st.info(f"📊 **Total kWh Units:** `{tot_kwh:,}`  |  **Total kVAh Units:** `{tot_kvah:,}`  |  **Overall PF:** `{tot_pf:.3f}`")
-    else:
-        st.warning("⚠️ End Reading Start Reading se badi honi chahiye!")
+    # Saaf Minus Aur Total Box
+    st.info(
+        f"➖ **Reading Minus:** kWh Diff = `{diff_kwh:,}` | kVAh Diff = `{diff_kvah:,}`\n\n"
+        f"📊 **Total kWh Units:** `{tot_kwh:,}`  |  **Total kVAh Units:** `{tot_kvah:,}`  |  **Overall PF:** `{tot_pf:.3f}`"
+    )
 
     st.markdown("### 2️⃣ Yeh Total Units Kitni Heats Ka Hai?")
-    n_heats = st.number_input("Kitni Heats hain? (1 se 25 tak)", min_value=1, max_value=25, value=3, step=1, format="%d")
+    n_heats = st.number_input("Total Heats (1 se 25 tak)", min_value=1, max_value=25, value=3, step=1, format="%d")
 
     st.markdown("### 3️⃣ Har Heat Ka Time & Situation Chunein")
     heats_data = list()
@@ -97,7 +104,7 @@ with tab1:
 
             r3.text_input("Total Time", value=dur_txt, disabled=True, key=f"dur_{i}")
 
-            b1, b2, b3 = st.columns([2, 1, 1])
+            b1, b2, b3 = st.columns(3)
             cond = b1.selectbox("Situation / Problem", list(CONDITIONS.keys()), key=f"cnd_{i}")
             tons = b2.number_input("Melt (Ton)", 1.0, 22.0, 16.0, 0.5, key=f"ton_{i}")
             hold_m = b3.number_input("Hold(m)", 0, 300, 0, 5, format="%d", key=f"hld_{i}")
@@ -111,8 +118,10 @@ with tab1:
             })
 
     if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
-        if kw_steps <= 0 or kv_steps <= 0 or not (0.600 <= tot_pf <= 0.992):
-            st.error(f"⚠️ Reading check karein! Overall PF ({tot_pf:.3f}) 0.600 se 0.990 ke beech hona chahiye.")
+        if tot_kwh <= 0 or tot_kvah <= 0:
+            st.error("⚠️ End Reading Start Reading se badi honi chahiye!")
+        elif not (0.600 <= tot_pf <= 0.995):
+            st.error(f"⚠️ Overall PF ({tot_pf:.3f}) galat hai! kVAh Units hamesha kWh Units se zyada honi chahiye (PF 0.600 se 0.995 ke beech).")
         elif int(n_heats) == 1:
             h = heats_data[0]
             pf1 = min(0.990, tot_pf)
@@ -126,25 +135,26 @@ with tab1:
                 language=None
             )
         else:
-            # Step-based allocation (strictly x8 multiples!)
+            kw_pool = tot_kwh // step_mult
+            kv_pool = tot_kvah // step_mult
+
             k_sc = [((h["tons"] * 0.65 + (h["dur_m"] / 7.5) * 0.35) * h["wt"] * random.uniform(0.975, 1.025)) + (h["hold_m"] * 0.25) for h in heats_data]
             t_sc = sum(k_sc)
-            k_st = [max(10, round((s / t_sc) * kw_steps)) for s in k_sc]
-            k_st[-1] += (kw_steps - sum(k_st))
+            k_st = [max(5, round((s / t_sc) * kw_pool)) for s in k_sc]
+            k_st[-1] += (kw_pool - sum(k_st))
 
-            v_sc = [k_st[idx] / min(0.985, max(0.605, heats_data[idx]["pf"] + random.uniform(-0.012, 0.012))) for idx in range(len(heats_data))]
+            v_sc = [k_st[idx] / min(0.988, max(0.605, heats_data[idx]["pf"] + random.uniform(-0.012, 0.012))) for idx in range(len(heats_data))]
             tv_sc = sum(v_sc)
-            v_st = [max(12, round((s / tv_sc) * kv_steps)) for s in v_sc]
-            v_st[-1] += (kv_steps - sum(v_st))
+            v_st = [max(6, round((s / tv_sc) * kv_pool)) for s in v_sc]
+            v_st[-1] += (kv_pool - sum(v_st))
 
-            # Enforce strict 0.600 <= PF <= 0.990 on every heat
             for _ in range(15000):
                 bad = False
                 for idx in range(len(heats_data)):
-                    mn_v, mx_v = int(k_st[idx] / 0.990) + 1, int(k_st[idx] / 0.600)
+                    mn_v, mx_v = int(k_st[idx] / 0.992) + 1, int(k_st[idx] / 0.600)
                     if v_st[idx] < mn_v:
                         for j in range(len(heats_data)):
-                            if idx != j and v_st[j] - 1 >= int(k_st[j] / 0.990) + 1:
+                            if idx != j and v_st[j] - 1 >= int(k_st[j] / 0.992) + 1:
                                 v_st[idx] += 1; v_st[j] -= 1; bad = True; break
                     elif v_st[idx] > mx_v:
                         for j in range(len(heats_data)):
@@ -155,8 +165,9 @@ with tab1:
 
             rows, copy_txt = list(), ""
             for idx, h in enumerate(heats_data):
-                ku, vu = int(k_st[idx] * 8), int(v_st[idx] * 8)
-                pf_i = min(0.990, max(0.600, round(ku / vu, 3)))
+                ku = int(k_st[idx] * step_mult) if idx < len(heats_data) - 1 else (tot_kwh - sum(int(x * step_mult) for x in k_st[:-1]))
+                vu = int(v_st[idx] * step_mult) if idx < len(heats_data) - 1 else (tot_kvah - sum(int(x * step_mult) for x in v_st[:-1]))
+                pf_i = min(0.992, max(0.600, round(ku / vu, 3)))
                 cond_short = h["cond"].split("(")[0].strip()
                 rows.append({
                     "Heat #": f"Heat #{h['no']}", "ON - TAP": f"{h['on']} - {h['tap_str']}",
@@ -176,9 +187,6 @@ with tab1:
             st.markdown("#### 📲 Copy Clean Report:")
             st.code(copy_txt.strip(), language=None)
 
-# =========================================================
-# TAB 2: MANDATORY 15-MIN KVAH REGISTER
-# =========================================================
 with tab2:
     rc1, rc2 = st.columns(2)
     ts4 = rc1.text_input("Start Time", "8:00am")
