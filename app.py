@@ -1,130 +1,139 @@
-import random
-import streamlit as st
-import pandas as pd
+import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16T Furnace App", page_icon="⚡", layout="centered")
-st.title("⚡ 16T Furnace Energy & Register App")
+st.set_page_config(page_title="Furnace Energy App", page_icon="⚡", layout="wide")
+st.title("⚡ 16.5T Furnace Heat-by-Heat Reconstructor")
 
+# Standard Parameters
 CONDITIONS = {
-    "Normal Running (Optimal Melting)": {"pf": 0.960, "wt": 1.00},
-    "CCM Casting Running (Furnace Holding)": {"pf": 0.820, "wt": 1.15},
-    "EOT Crane Breakdown (Metal Hold)": {"pf": 0.800, "wt": 1.18},
-    "Capacitor Bank Fault / Low PF": {"pf": 0.780, "wt": 1.15},
-    "GLD Alarm / Lining Leakage": {"pf": 0.880, "wt": 1.20},
-    "Panel / SCR Tripping (ON-OFF)": {"pf": 0.840, "wt": 1.20},
-    "Sintering / Lining Heat (Slow)": {"pf": 0.840, "wt": 1.22},
-    "Scrap / Charging / Slag Delay": {"pf": 0.860, "wt": 1.08},
+    "Normal Running": {"pf": 0.962, "wt": 1.00},
+    "Sintering (Lining Heat)": {"pf": 0.840, "wt": 1.25},
+    "GLD / Tripping Problem": {"pf": 0.880, "wt": 1.15},
+    "CCM Holding / Casting": {"pf": 0.820, "wt": 1.10},
+    "Scrap / Slag Delay": {"pf": 0.860, "wt": 1.05},
 }
 
-def clean_int(val):
-    if val is None: return 0
-    s = str(val).strip().replace(",", "").replace(" ", "")
-    digits = "".join(c for c in s if c.isdigit())
-    return int(digits) if digits else 0
-
-def parse_t(t_str, base_dt=None):
-    if not t_str: return None
-    s = str(t_str).strip().upper().replace(".", ":")
-    for sfx in ("AM", "PM"):
-        if s.endswith(sfx) and ":" not in s and s[:-2].strip().isdigit():
-            s = f"{s[:-2].strip()}:00 {sfx}"
-    for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M"):
+def pt(s, b=None):
+    if not s: return None
+    s = str(s).strip().upper().replace(".", ":")
+    for x in ("AM", "PM"):
+        if s.endswith(x) and ":" not in s and s[:-2].strip().isdigit():
+            s = f"{s[:-2].strip()}:00 {x}"
+    for f in ("%I:%M %p", "%I:%M%p", "%H:%M"):
         try:
-            dt = datetime.strptime(s, fmt)
-            ref = base_dt or datetime.now()
-            dt = dt.replace(year=ref.year, month=ref.month, day=ref.day)
-            if base_dt and dt <= base_dt: dt += timedelta(days=1)
-            return dt
-        except ValueError: pass
+            d = datetime.strptime(s, f)
+            if b:
+                d = d.replace(year=b.year, month=b.month, day=b.day)
+                if d < b: d += timedelta(days=1)
+            return d
+        except: pass
     return None
 
-tab1, tab2 = st.tabs(["🔥 Heat-by-Heat Report", "📋 15-Min KVAH Register"])
+def gn(v):
+    d = "".join(c for c in str(v) if c.isdigit())
+    return int(d) if d else 0
 
-with tab1:
-    st.markdown("### 1️⃣ Meter Factor Aur Reading Daalein")
-    # MF box se aap khud tay karein ki kis se guna karna hai
-    MF = st.number_input("Multiplication Factor (MF) - [Diff x MF]", value=1.0, step=0.1, format="%.1f")
+# --- STEP 1: READING & TOTAL CALCULATION ---
+st.markdown("### 1️⃣ Reading Se Total Units Nikalein")
+r_col1, r_col2, r_col3 = st.columns([2, 2, 1.2])
+
+with r_col1:
+    skw = gn(st.text_input("Start kWh Reading", "160944480"))
+    skv = gn(st.text_input("Start kVAh Reading", "169767296"))
+with r_col2:
+    ekw = gn(st.text_input("End kWh Reading", "160983200"))
+    ekv = gn(st.text_input("End kVAh Reading", "169807360"))
+with r_col3:
+    MF = st.number_input("Meter Factor (MF)", value=1.0, step=0.1)
+
+diff_kw = ekw - skw
+diff_kv = ekv - skv
+tot_kwh = int(diff_kw * MF)
+tot_kvah = int(diff_kv * MF)
+overall_pf = round(tot_kwh / tot_kvah, 3) if tot_kvah > 0 else 0.0
+
+if tot_kwh > 0:
+    st.info(f"📊 **TOTAL UNITS TO DIVIDE:** kWh = `{tot_kwh:,}` | kVAh = `{tot_kvah:,}` | PF = `{overall_pf:.3f}`")
+else:
+    st.error("⚠️ End Reading check karein (Start se badi honi chahiye)")
+
+# --- STEP 2: NUMBER OF HEATS ---
+st.markdown("---")
+nh = st.number_input("2️⃣ Yeh units kitni heats mein divide karni hain?", 1, 20, 4)
+
+# --- STEP 3: HEAT DETAILS ---
+st.markdown("### 3️⃣ Har Heat ki Situation Daalein")
+hl = []
+base_t = datetime.strptime("08:00 AM", "%I:%M %p")
+
+for i in range(1, int(nh) + 1):
+    with st.container(border=True):
+        st.markdown(f"**Heat #{i}**")
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1.2, 1, 1])
+        ton = c1.number_input(f"Melting (Ton)", 1.0, 22.0, 16.5, 0.1, key=f"tn_{i}")
+        tp_t = c2.text_input(f"Tapping Time", (base_t + timedelta(minutes=110*i)).strftime("%I:%M %p"), key=f"tt_{i}")
+        cond = c3.selectbox("Situation", list(CONDITIONS.keys()), key=f"cd_{i}")
+        bd_min = c4.number_input("Breakdown (min)", 0, 300, 0, 5, key=f"bm_{i}")
+        target_pf = c5.number_input("Target PF", 0.600, 0.980, CONDITIONS[cond]["pf"], 0.001, format="%.3f", key=f"pf_{i}")
+        hl.append({"no": i, "ton": ton, "tap": tp_t, "cond": cond, "bd": bd_min, "tpf": target_pf, "wt": CONDITIONS[cond]["wt"]})
+
+# --- STEP 4: RECONSTRUCTION LOGIC ---
+if st.button("🔥 GENERATE HEAT-BY-HEAT REPORT", type="primary", use_container_width=True):
+    # Calculate Weights for kWh distribution
+    # Logic: Energy = (Tons * Condition Weight) + (Breakdown mins * holding power factor)
+    weights = []
+    for h in hl:
+        w = (h["ton"] * h["wt"] * random.uniform(0.98, 1.02)) + (h["bd"] * 0.4)
+        weights.append(w)
     
-    c1, c2 = st.columns(2)
-    s_kwh_txt = c1.text_input("Start kWh Reading", value="160944480")
-    e_kwh_txt = c2.text_input("End kWh Reading", value="160983200")
-    s_kvah_txt = c1.text_input("Start kVAh Reading", value="169767296")
-    e_kvah_txt = c2.text_input("End kVAh Reading", value="169807360")
-
-    s_kwh, e_kwh = clean_int(s_kwh_txt), clean_int(e_kwh_txt)
-    s_kvah, e_kvah = clean_int(s_kvah_txt), clean_int(e_kvah_txt)
-
-    diff_kwh = e_kwh - s_kwh
-    diff_kvah = e_kvah - s_kvah
+    tw = sum(weights)
     
-    # Final Units Calculation
-    tot_kwh = int(diff_kwh * MF)
-    tot_kvah = int(diff_kvah * MF)
-    tot_pf = round(tot_kwh / tot_kvah, 3) if tot_kvah > 0 else 0.0
+    # Split kWh Units
+    kw_u = [int(round((w / tw) * tot_kwh)) for w in weights]
+    # Adjustment for exact total
+    kw_u[-1] += (tot_kwh - sum(kw_u))
+    
+    # Split kVAh Units based on individual target PFs
+    kv_raw = [kw_u[i] / hl[i]["tpf"] for i in range(len(hl))]
+    tkv_raw = sum(kv_raw)
+    kv_u = [int(round((v / tkv_raw) * tot_kvah)) for v in kv_raw]
+    # Adjustment for exact total
+    kv_u[-1] += (tot_kvah - sum(kv_u))
 
-    st.info(
-        f"📊 **Calculation Result (MF={MF:g}):**\n\n"
-        f"kWh: `{e_kwh}` - `{s_kwh}` = `{diff_kwh:,}` ➔ **Total Units: {tot_kwh:,}**\n\n"
-        f"kVAh: `{e_kvah}` - `{s_kvah}` = `{diff_kvah:,}` ➔ **Total Units: {tot_kvah:,}**\n\n"
-        f"Overall PF: `{tot_pf:.3f}`"
-    )
+    # Output Display
+    st.success("✅ Sabhi Heats ka data situation ke hisab se divide ho gaya hai!")
+    
+    report_rows = []
+    copy_text = ""
+    
+    for i, h in enumerate(hl):
+        ku, vu = kw_u[i], max(kw_u[i] + 1, kv_u[i])
+        actual_pf = round(ku / vu, 3)
+        u_ton = round(ku / h["ton"], 1)
+        
+        report_rows.append({
+            "Heat": f"#{h['no']}",
+            "Tap Time": h["tap"],
+            "Situation": h["cond"],
+            "Melt Ton": h["ton"],
+            "u/Ton": u_ton,
+            "kWh Units": ku,
+            "kVAh Units": vu,
+            "PF": actual_pf
+        })
+        
+        copy_text += (
+            f"--- Heat #{h['no']} ---\n"
+            f"Heat Taping Time : {h['tap']}\n"
+            f"Melting Ton      : {h['ton']} T\n"
+            f"Kwh units        : {ku}\n"
+            f"Kvah units       : {vu}\n"
+            f"Pf.              : {actual_pf:.3f}\n\n"
+        )
 
-    if diff_kwh <= 0: st.error("⚠️ End Reading Start se badi honi chahiye!")
+    st.dataframe(pd.DataFrame(report_rows), use_container_width=True, hide_index=True)
+    
+    st.markdown("#### 📲 Copy Report (Register/WhatsApp Format):")
+    st.code(copy_text.strip(), language=None)
 
-    st.markdown("### 2️⃣ Yeh Total Units Kitni Heats Ka Hai?")
-    n_heats = st.number_input("Total Heats", 1, 25, 4)
-
-    st.markdown("### 3️⃣ Har Heat Ka Time & Situation Chunein")
-    heats_data = []
-    prev_tap = datetime.strptime("02:00 AM", "%I:%M %p")
-
-    for i in range(1, int(n_heats) + 1):
-        with st.container(border=True):
-            def_on = prev_tap.strftime("%I:%M %p").lstrip("0")
-            def_tap = (prev_tap + timedelta(hours=2)).strftime("%I:%M %p").lstrip("0")
-            r1, r2, r3 = st.columns(3)
-            on_str = r1.text_input(f"Heat #{i} ON Time", value=def_on, key=f"on_{i}")
-            tap_str = r2.text_input(f"Heat #{i} TAP Time", value=def_tap, key=f"tap_{i}")
-            d_on, d_tap = parse_t(on_str), parse_t(tap_str, parse_t(on_str))
-            if d_on and d_tap:
-                dur_m = int((d_tap - d_on).total_seconds() // 60)
-                dur_txt = f"{dur_m // 60} hr {dur_m % 60} min"
-                prev_tap = d_tap
-                r3.markdown(f"**⏱️ Total Time**<br><span style='color:#16a34a; font-weight:700;'>{dur_txt}</span>", unsafe_allow_html=True)
-            else:
-                dur_m, dur_txt = 120, "2 hr 0 min"
-                r3.markdown("**⏱️ Total Time**<br><span>--</span>", unsafe_allow_html=True)
-
-            b1, b2, b3 = st.columns(3)
-            cond = b1.selectbox("Situation", list(CONDITIONS.keys()), key=f"cnd_{i}")
-            tons = b2.number_input("Ton", 1.0, 22.0, 16.0, 0.1, key=f"ton_{i}")
-            hold_m = b3.number_input("Hold(m)", 0, 300, 0, 5, key=f"hld_{i}")
-            heats_data.append({"no": i, "on": on_str, "tap_str": d_tap.strftime("%I:%M %p").lstrip("0") if d_tap else tap_str, "dur_m": max(15, dur_m), "dur_txt": dur_txt, "cond": cond, "tons": tons, "hold_m": hold_m, "wt": CONDITIONS[cond]["wt"], "pf": CONDITIONS[cond]["pf"]})
-
-    if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
-        if tot_kwh <= 0: st.error("⚠️ Readings check karein!")
-        else:
-            k_sc = [((h["tons"] * 0.6 + (h["dur_m"]/7.5) * 0.4) * h["wt"] * random.uniform(0.98, 1.02)) + (h["hold_m"] * 0.3) for h in heats_data]
-            ts = sum(k_sc)
-            kw_u = [int(round((s / ts) * tot_kwh)) for s in k_sc]
-            kw_u[-1] += (tot_kwh - sum(kw_u))
-            v_sc = [kw_u[idx] / min(0.988, max(0.605, heats_data[idx]["pf"] + random.uniform(-0.01, 0.01))) for idx in range(len(heats_data))]
-            tv = sum(v_sc)
-            kv_u = [int(round((s / tv) * tot_kvah)) for s in v_sc]
-            kv_u[-1] += (tot_kvah - sum(kv_u))
-
-            rows, copy_txt = [], ""
-            for idx, h in enumerate(heats_data):
-                ku, vu = kw_u[idx], max(kw_u[idx] + 1, kv_u[idx])
-                pf_i = min(0.990, round(ku / vu, 3))
-                rows.append({"Heat #": f"#{h['no']}", "TAP": h["tap_str"], "Time": h["dur_txt"], "Ton": h["tons"], "Kwh": ku, "Kvah": vu, "PF": f"{pf_i:.3f}"})
-                copy_txt += f"--- Heat #{h['no']} ---\nHeat Taping Time : {h['tap_str']} ({h['dur_txt']})\nKwh units        : {ku}\nKvah units       : {vu}\nPf.              : {pf_i:.3f}\n\n"
-            st.success(f"✅ Report Ready! Total Kwh: {tot_kwh:,}")
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            st.markdown("#### 📲 Copy Report:")
-            st.code(copy_txt.strip(), language=None)
-
-with tab2:
-    st.info("15-Min Register calculation here.")
 # DONE
