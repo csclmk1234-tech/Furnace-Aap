@@ -128,7 +128,6 @@ with tab1:
         })
         st.rerun()
 # --- END PART 1 ---
-       with tab2:
     st.subheader("🔥 Multi-Heat (e.g. 10 Heats) Situation-Wise Units & PF Report")
     lh2 = db.get_last_heat()
     bst_d = lh2["end_time"] if lh2 else "08:00 AM"
