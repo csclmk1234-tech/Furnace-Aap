@@ -83,55 +83,78 @@ with t_heat:
             st.code(copy_t.strip(), language=None)
 # --- END PART 1 ---
 with t_reg:
-    st.markdown("### 📋 15-Min Register Generator (Situation-Based)")
+    st.markdown("### 📋 15-Min Register Generator (Status Fixed)")
     rc1, rc2 = st.columns(2)
-    ts4 = rc1.text_input("Start Time (Register)", "8:00 AM", key="r4_ts")
+    ts4 = rc1.text_input("Shift Start Time", "8:00 AM", key="r4_ts")
     rs4 = gn(rc1.text_input("Start KVAH (Register)", "249751728", key="r4_rs"))
     fa4 = rc1.selectbox("A-Line Active", ["A1", "A2"], key="r4_fa")
-    te4 = rc2.text_input("End Time (Register)", "10:30 AM", key="r4_te")
+    te4 = rc2.text_input("Shift End Time", "10:30 AM", key="r4_te")
     re4 = gn(rc2.text_input("End KVAH (Register)", "249775482", key="r4_re"))
     fb4 = rc2.selectbox("B-Line Active", ["B1", "B2"], index=1, key="r4_fb")
 
-    tp4 = st.text_input("Tapping Times (Register)", "8:25 AM, 9:45 AM")
+    tp4 = st.text_input("Tapping Times (Comma)", "8:25 AM, 9:45 AM")
     
-    with st.expander("➕ Register Situations (GLD, Sintering, OFF)"):
+    with st.expander("➕ Register Situations (OFF/GLD/Sintering)", expanded=True):
         c_b1, c_b2, c_b3 = st.columns(3)
-        off_fur = c_b1.selectbox("Any Furnace OFF?", ["None", "A OFF", "B OFF", "BOTH OFF"], key="r4_off")
-        off_s, off_e = c_b2.text_input("OFF From", ""), c_b3.text_input("OFF To", "")
+        off_fur = c_b1.selectbox("Furnace OFF?", ["None", "A OFF", "B OFF", "BOTH OFF"], key="r4_off")
+        off_s = c_b2.text_input("OFF From", "8:00 AM", key="r4_obs")
+        off_e = c_b3.text_input("OFF To", "9:45 AM", key="r4_obe")
+        
         c_s1, c_s2, c_s3 = st.columns(3)
-        sit_tp = c_s1.selectbox("Special Case?", ["None", "GLD Problem", "Sintering Heat", "Capacitor Fault"], key="r4_sit")
-        sit_s, sit_e = c_s2.text_input("Sit. From", ""), c_s3.text_input("Sit. To", "")
+        sit_tp = c_s1.selectbox("Special Condition", ["None", "GLD Problem", "Sintering Heat", "Capacitor Fault"], key="r4_sit")
+        sit_s = c_s2.text_input("Sit. From", "9:50 AM", key="r4_sbs")
+        sit_e = c_s3.text_input("Sit. To", "10:30 AM", key="r4_sbe")
 
     if st.button("🚀 Register Table Banayein", type="primary", use_container_width=True, key="r4_btn"):
         ds, de = pt(ts4), pt(te4, pt(ts4))
         if ds and de and re4 >= rs4:
-            diff_total, cur, sl = re4 - rs4, ds, []
+            total_diff, cur, sl = re4 - rs4, ds, []
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "fa": fa4, "fb": fb4, "status": "Both Running", "wt": 1.0})
                 cur = nx
+            
+            # Match Times for OFF and Situation
+            oss, oee = pt(off_s, ds), pt(off_e, ds)
+            sss, see = pt(sit_s, ds), pt(sit_e, ds)
+
             for s in sl:
-                for x in tp4.split(","):
-                    if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
-                        s["status"], s["wt"] = "Tapping (Dip)", 0.72
-                if sit_tp != "None" and sit_s and sit_e:
-                    ss, se = pt(sit_s, ds), pt(sit_e, ds)
-                    if ss and se and s["s"] < se and s["e"] > ss:
-                        s["status"] = sit_tp
-                        s["wt"] = 0.78 if sit_tp == "GLD Problem" else 0.65
-                if off_fur != "None" and off_s and off_e:
-                    os, oe = pt(off_s, ds), pt(off_e, ds)
-                    if os and oe and s["s"] < oe and s["e"] > os:
+                # 1. Apply OFF Furnace First (Highest Priority)
+                if off_fur != "None" and oss and oee:
+                    if s["s"] < oee and s["e"] > oss:
                         if "A OFF" in off_fur: s["fa"] = "OFF"
                         if "B OFF" in off_fur: s["fb"] = "OFF"
-                        s["status"], s["wt"] = f"{off_fur}", 0.55
-            wts = [s["wt"] * random.uniform(0.92, 1.15) * (((s["e"]-s["s"]).total_seconds()/60)/15) for s in sl]
-            steps = [int(round((w/sum(wts))*diff_total)) for w in wts]
-            steps[-1] += (diff_total - sum(steps))
+                        if "BOTH" in off_fur: s["fa"], s["fb"] = "OFF", "OFF"
+                        s["status"], s["wt"] = f"{off_fur}", 0.50
+                
+                # 2. Apply Situation (If not overridden by BOTH OFF)
+                if sit_tp != "None" and sss and see:
+                    if s["s"] < see and s["e"] > sss:
+                        if s["status"] == "Both Running": # Only if not OFF
+                            s["status"], s["wt"] = sit_tp, 0.70
+                
+                # 3. Tapping Check (If still Running)
+                for x in tp4.split(","):
+                    if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
+                        if s["status"] == "Both Running":
+                            s["status"], s["wt"] = "Tapping (Dip)", 0.75
+
+            # Units Allocation
+            wts = [s["wt"] * random.uniform(0.95, 1.10) for s in sl]
+            steps = [int(round((w/sum(wts))*total_diff)) for w in wts]
+            steps[-1] += (total_diff - sum(steps))
+            
             curr_r, rw = rs4, [{"Time": ds.strftime('%I:%M %p'), "Furnaces": f"{fa4}+{fb4}", "Situation": "Start", "KVAH": str(rs4), "Unit": "-"}]
             for i, s in enumerate(sl):
                 curr_r += steps[i]
-                rw.append({"Time": s["e"].strftime('%I:%M %p'), "Furnaces": f"{s['fa']}+{s['fb']}", "Situation": s["status"], "KVAH": str(curr_r), "Unit": str(steps[i])})
+                rw.append({
+                    "Time": s["e"].strftime('%I:%M %p'),
+                    "Furnaces": f"{s['fa']}+{s['fb']}",
+                    "Situation": s["status"],
+                    "KVAH": str(int(curr_r)),
+                    "Unit": str(int(steps[i]))
+                })
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
+            st.success(f"Register Completed! Total units distributed: {total_diff}")
         else: st.error("Check Readings/Time!")
 # --- END PART 2 ---
