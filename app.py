@@ -42,6 +42,8 @@ def meter_card(t_str, kwh, kvah, pf): return f"Time : {t_str}\nkWh  : {int(kwh):
 
 with st.sidebar:
     st.header("⚙️ Furnace Control")
+    rm_global = st.radio("Meter Reading Type:", ["9-Digit Last Decimal (((Diff÷10)×8))", "Direct Whole (((Diff)×8))"], index=0)
+    DIV_G = 10.0 if "Decimal" in rm_global else 1.0
     curr_bench = float(db.get_state("benchmark_sec", "580.0"))
     new_bench = st.number_input("Benchmark SEC (kWh/T)", 450.0, 800.0, curr_bench, 5.0)
     if new_bench != curr_bench:
@@ -56,13 +58,13 @@ with st.sidebar:
         db.reset_lining_campaign(); st.rerun()
 
 st.title("⚡ 16T Induction Furnace Energy & 15-Min Register")
-tab1, tab2, tab3, tab4 = st.tabs(["📟 1. Heat Entry", "🛠️ 2. Missed Split", "📊 3. Analytics", "📋 4. 15-Min Register"])
+tab1, tab2, tab3, tab4 = st.tabs(["📟 1. Heat Entry", "🛠️ 2. Multi-Heat (10+) Report", "📊 3. Analytics", "📋 4. 15-Min Register"])
 
 with tab1:
     lh = db.get_last_heat()
     ds_t = lh["end_time"] if lh else "08:00 AM"
-    ds_kw = int(lh["end_kwh"]) if lh else 160132520
-    ds_kv = int(lh["end_kvah"]) if lh else 168914040
+    ds_kw = int(lh["end_kwh"]) if lh else 160132528
+    ds_kv = int(lh["end_kvah"]) if lh else 168914048
     dh_no = int(lh["heat_no"]) + 1 if lh else 1
     dl_no = int(db.get_state("lining_heat_count", "0")) + 1
     ac_cmp = int(db.get_state("lining_campaign", "1"))
@@ -71,7 +73,7 @@ with tab1:
     log_dt = c1.date_input("Log Date", value=date.today())
     heat_no = c2.number_input("Heat No.", 1, 99999, dh_no, 1)
     lining_h_no = c3.number_input("Lining Heat #", 1, 500, dl_no, 1)
-    tapped_tons = c4.number_input("Tapped Tons", 1.0, 22.0, 16.0, 0.1)
+    tapped_tons = c4.number_input("Tapped Tons", 1.0, 22.0, 16.5, 0.1)
 
     m1, m2 = st.columns(2)
     s_t_in = m1.text_input("Start Time (AM/PM)", ds_t)
@@ -81,16 +83,18 @@ with tab1:
 
     dts0 = parse_time(s_t_in)
     e_t_in = m2.text_input("End Time (AM/PM)", fmt_ampm(dts0 + timedelta(hours=2)) if dts0 else "10:00 AM")
-    e_kw_in = m2.number_input("End kWh", 0, 999999999, ds_kw + 1160, 1, "%d")
-    e_kv_in = m2.number_input("End kVAh", 0, 999999999, ds_kv + 1234, 1, "%d")
+    def_step = int(1330 * DIV_G)
+    e_kw_in = m2.number_input("End kWh", 0, 999999999, ds_kw + def_step, 1, "%d")
+    e_kv_in = m2.number_input("End kVAh", 0, 999999999, ds_kv + int(1400 * DIV_G), 1, "%d")
     cond_sel = m2.selectbox("Heat Run Condition", list(CONDITIONS.keys()))
 
     d1, d2, d3 = st.columns(3)
     use_cpf = d1.checkbox("Auto-use Calculated PF", value=True)
     hold_m = d2.number_input("Holding / BD Mins", 0, 360, 0, 5)
 
-    r_kw_d, r_kv_d = int(e_kw_in - s_kw_in), int(e_kv_in - s_kv_in)
-    act_kw, act_kv = r_kw_d * MF, r_kv_d * MF
+    kw_steps = round((e_kw_in - s_kw_in) / DIV_G)
+    kv_steps = round((e_kv_in - s_kv_in) / DIV_G)
+    act_kw, act_kv = int(kw_steps * MF), int(kv_steps * MF)
     raw_pf = round(act_kw / act_kv, 3) if act_kv > 0 else 0.0
     cap_pf = min(0.980, max(0.600, raw_pf)) if act_kv > 0 else CONDITIONS[cond_sel]["pf"]
     inst_pf = d3.number_input("End Meter PF", 0.600, 0.980, cap_pf if use_cpf else CONDITIONS[cond_sel]["pf"], 0.001, "%.3f")
@@ -107,11 +111,11 @@ with tab1:
     p1, p2, p3 = st.columns(3)
     p1.code(meter_card(fmt_ampm(dt_s) if dt_s else s_t_in, s_kw_in, s_kv_in, s_pf_in), language=None)
     p2.code(meter_card(fmt_ampm(dt_e) if dt_e else e_t_in, e_kw_in, e_kv_in, inst_pf), language=None)
-    p3.code(f"Heat #{heat_no} | {act_kw:,} kWh ({sec_v} u/T)\nkVAh: {act_kv:,} | Calc PF: {raw_pf:.3f}\nHold: {eh_kw} kWh | Loss: {ex_kw} kWh", language=None)
+    p3.code(f"Heat #{heat_no}\nKwh units  : {act_kw} ({sec_v} u/T)\nKvah units : {act_kv}\nPf.        : {raw_pf:.3f}", language=None)
 
     errs = list()
     if not dt_s or not dt_e: errs.append("Valid AM/PM Time daalein.")
-    if r_kw_d <= 0 or r_kv_d <= 0: errs.append("End Reading Start se badi honi chahiye.")
+    if kw_steps <= 0 or kv_steps <= 0: errs.append("End Reading Start se badi honi chahiye.")
     if not (0.600 <= raw_pf <= 0.980): errs.append(f"PF ({raw_pf:.3f}) 0.600–0.980 ke beech hona chahiye!")
     for er in errs: st.error(er)
 
@@ -128,49 +132,45 @@ with tab1:
         })
         st.rerun()
 # --- END PART 1 ---
-    st.subheader("🔥 Multi-Heat (e.g. 10 Heats) Situation-Wise Units & PF Report")
+with tab2:
+    st.subheader("🔥 Multi-Heat (10+ Heats) Situation-Wise Units & PF Report")
     lh2 = db.get_last_heat()
     bst_d = lh2["end_time"] if lh2 else "08:00 AM"
-    bskw_d = int(lh2["end_kwh"]) if lh2 else 160132520
-    bskv_d = int(lh2["end_kvah"]) if lh2 else 168914040
+    bskw_d = int(lh2["end_kwh"]) if lh2 else 160132528
+    bskv_d = int(lh2["end_kvah"]) if lh2 else 168914048
     nh_no = int(lh2["heat_no"]) + 1 if lh2 else 1
     nl_no = int(db.get_state("lining_heat_count", "0")) + 1
 
     st1, st2, st3 = st.columns(3)
     sp_dt = st1.date_input("Report Date", value=date.today(), key="sp_d")
-    n_miss = st2.number_input("Kitni Heats ki Report nikalni hai? (e.g. 10)", 1, 25, 10, 1)
-    rm_mode = st3.selectbox("Meter Mode", ["Direct ((End-Start) × 8)", "Decimal (((End-Start)÷10) × 8)"])
+    n_miss = st2.number_input("Kitni Heats ki Report nikalni hai?", 1, 25, 10, 1)
+    rm_mode = st3.selectbox("Meter Mode", ["Decimal (((End-Start)÷10) × 8)", "Direct ((End-Start) × 8)"], index=0)
 
+    div_m = 10 if "Decimal" in rm_mode else 1
     bc1, bc2 = st.columns(2)
     bst = bc1.text_input("Shift / Block Start Time", bst_d, key="bst")
     bskw = bc1.number_input("Start kWh Reading", 0, 999999999, bskw_d, 1, "%d", key="bsk")
     bskv = bc1.number_input("Start kVAh Reading", 0, 999999999, bskv_d, 1, "%d", key="bsv")
 
-    div_m = 10 if "Decimal" in rm_mode else 1
     bet = bc2.text_input("Last Heat Tapping / End Time", "08:00 PM", key="bet")
-    bekw = bc2.number_input("End kWh Reading", 0, 999999999, bskw_d + (1180 * int(n_miss) * div_m), 1, "%d", key="bek")
-    bekv = bc2.number_input("End kVAh Reading", 0, 999999999, bskv_d + (1295 * int(n_miss) * div_m), 1, "%d", key="bev")
+    bekw = bc2.number_input("End kWh Reading", 0, 999999999, bskw_d + (1350 * int(n_miss) * div_m), 1, "%d", key="bek")
+    bekv = bc2.number_input("End kVAh Reading", 0, 999999999, bskv_d + (1435 * int(n_miss) * div_m), 1, "%d", key="bev")
 
     ALL_SITUATIONS = dict(CONDITIONS)
-    ALL_SITUATIONS["Sintering / Lining Heat (Low Power)"] = {"pf": 0.840, "weight": 1.25, "cat": "Sintering"}
+    ALL_SITUATIONS["Sintering / Lining Heat (Low Power)"] = {"pf": 0.840, "weight": 1.22, "cat": "Sintering"}
 
-    st.markdown(f"#### 📋 Sabhi {int(n_miss)} Heats ki Situation & Tapping Details Bharein")
     m_rows = list()
     bds_base = parse_time(bst) or datetime.strptime("08:00 AM", "%I:%M %p")
-
     for i in range(int(n_miss)):
         sug_tap = fmt_ampm(bds_base + timedelta(minutes=72 * (i + 1)))
-        x1, x2, x3, x4, x5, x6 = st.columns([0.8, 1.2, 1.0, 2.3, 0.9, 1.0])
+        x1, x2, x3, x4, x5, x6 = st.columns(6)
         mh = x1.number_input("Heat#", 1, 99999, nh_no + i, 1, key=f"mh_{i}")
         mtap = x2.text_input("Tap Time", sug_tap, key=f"mtp_{i}")
-        mt = x3.number_input("Tons", 1.0, 22.0, 16.0, 0.1, key=f"mt_{i}")
-        mc = x4.selectbox("Situation / Condition", list(ALL_SITUATIONS.keys()), key=f"mc_{i}")
+        mt = x3.number_input("Tons", 1.0, 22.0, 16.5, 0.1, key=f"mt_{i}")
+        mc = x4.selectbox("Situation", list(ALL_SITUATIONS.keys()), key=f"mc_{i}")
         md = x5.number_input("Hold(m)", 0, 300, 0, 5, key=f"md_{i}")
         mp = x6.number_input("Base PF", 0.600, 0.980, ALL_SITUATIONS[mc]["pf"], 0.001, "%.3f", key=f"mp_{i}")
-        m_rows.append({
-            "hno": int(mh), "lno": nl_no + i, "tap_in": mtap, "tons": float(mt),
-            "cond": mc, "hm": int(md), "tpf": float(mp), "wt": ALL_SITUATIONS[mc]["weight"]
-        })
+        m_rows.append({"hno": int(mh), "lno": nl_no + i, "tap_in": mtap, "tons": float(mt), "cond": mc, "hm": int(md), "tpf": float(mp), "wt": ALL_SITUATIONS[mc]["weight"]})
 
     st.button("🔥 GENERATE COMPLETE MULTI-HEAT REPORT", type="primary", use_container_width=True)
 
@@ -179,26 +179,18 @@ with tab1:
     bpf = round(tkw_r / tkv_r, 3) if tkv_r > 0 else 0.0
 
     if tkw_r <= int(n_miss) * 5 or not (0.600 <= bpf <= 0.980):
-        st.error(f"⚠️ Meter Reading check karein! Overall PF ({bpf:.3f}) 0.600 se 0.980 ke beech hona chahiye.")
+        st.error(f"⚠️ Reading check karein! Total Kwh: {tkw_r*MF:,} | Kvah: {tkv_r*MF:,} | Overall PF ({bpf:.3f}) 0.600–0.980 ke beech hona chahiye.")
     else:
-        # 1. Situation + Tonnage + Holding + Natural Jitter se kWh steps (x8) nikalna
-        k_sc = list()
-        for r in m_rows:
-            jitter = random.uniform(0.975, 1.025)
-            hold_steps = (r["hm"] * 25.0) / MF
-            sc = ((r["tons"] * r["wt"]) * jitter) + (hold_steps * 0.03)
-            k_sc.append(sc)
+        k_sc = [((r["tons"] * r["wt"]) * random.uniform(0.975, 1.025)) + (((r["hm"] * 25.0) / MF) * 0.03) for r in m_rows]
         t_sc = sum(k_sc)
         kw_al = [max(5, round((s / t_sc) * tkw_r)) for s in k_sc]
         kw_al[-1] += (tkw_r - sum(kw_al))
 
-        # 2. Har heat ki situation PF + slight variation se kVAh steps (x8) nikalna
         v_sc = [kw_al[i] / min(0.978, max(0.605, m_rows[i]["tpf"] + random.uniform(-0.012, 0.012))) for i in range(len(m_rows))]
         tv_sc = sum(v_sc)
         kv_al = [max(6, round((s / tv_sc) * tkv_r)) for s in v_sc]
         kv_al[-1] += (tkv_r - sum(kv_al))
 
-        # 3. Strict 0.600 <= PF <= 0.980 lock on all 10+ heats
         for _ in range(20000):
             bad = False
             for i in range(len(m_rows)):
@@ -213,30 +205,22 @@ with tab1:
                             kv_al[i] -= 1; kv_al[j] += 1; bad = True; break
             if not bad: break
 
-        recs = list()
-        c_dt = bds_base
-        c_kw, c_kv = int(bskw), int(bskv)
+        recs, c_dt, c_kw, c_kv = list(), bds_base, int(bskw), int(bskv)
         ac_c2 = int(db.get_state("lining_campaign", "1"))
-
         for i, r in enumerate(m_rows):
             ndt = parse_time(r["tap_in"], c_dt, True) or (c_dt + timedelta(minutes=70))
-            if i == len(m_rows) - 1:
-                nkw, nkv = int(bekw), int(bekv)
-            else:
-                nkw = c_kw + (kw_al[i] * div_m)
-                nkv = c_kv + (kv_al[i] * div_m)
-
-            akw, akv = kw_al[i] * MF, kv_al[i] * MF
+            nkw = int(bekw) if i == len(m_rows) - 1 else c_kw + int(kw_al[i] * div_m)
+            nkv = int(bekv) if i == len(m_rows) - 1 else c_kv + int(kv_al[i] * div_m)
+            akw, akv = int(kw_al[i] * MF), int(kv_al[i] * MF)
             cpf = min(0.980, max(0.600, round(akw / akv, 3)))
             recs.append({
                 "log_date": sp_dt.strftime("%Y-%m-%d"), "shift": detect_shift(ndt),
                 "lining_campaign": ac_c2, "lining_heat_no": r["lno"], "heat_no": r["hno"],
-                "start_time": fmt_ampm(c_dt), "end_time": fmt_ampm(ndt),
-                "start_kwh": c_kw, "end_kwh": nkw, "start_kvah": c_kv, "end_kvah": nkv,
-                "actual_kwh": akw, "actual_kvah": akv, "calc_pf": cpf, "inst_pf": cpf,
-                "tapped_tons": r["tons"], "sec_kwh_ton": round(akw / r["tons"], 1),
-                "kvah_per_ton": round(akv / r["tons"], 1), "run_condition": r["cond"],
-                "holding_mins": r["hm"], "est_holding_kwh": round(r["hm"] * 25.0, 1),
+                "start_time": fmt_ampm(c_dt), "end_time": fmt_ampm(ndt), "start_kwh": c_kw, "end_kwh": nkw,
+                "start_kvah": c_kv, "end_kvah": nkv, "actual_kwh": akw, "actual_kvah": akv,
+                "calc_pf": cpf, "inst_pf": cpf, "tapped_tons": r["tons"],
+                "sec_kwh_ton": round(akw / r["tons"], 1), "kvah_per_ton": round(akv / r["tons"], 1),
+                "run_condition": r["cond"], "holding_mins": r["hm"], "est_holding_kwh": round(r["hm"] * 25.0, 1),
                 "extra_loss_kwh": round(max(0.0, akw - r["tons"] * curr_bench), 1),
                 "low_pf_extra_kvah": round(max(0.0, akv - akw / 0.950), 1),
                 "benchmark_sec": curr_bench, "entry_mode": "MULTI_HEAT"
@@ -244,26 +228,17 @@ with tab1:
             c_dt, c_kw, c_kv = ndt, nkw, nkv
 
         tot_t = sum(x["tapped_tons"] for x in recs)
-        st.success(f"✅ {len(recs)} Heats Report Ready | Total Tons: {tot_t:.1f} T | Total Kwh: {tkw_r*MF:,} | Total Kvah: {tkv_r*MF:,} | Overall Pf: {bpf:.3f}")
-
+        st.success(f"✅ {len(recs)} Heats | Tons: {tot_t:.1f} T | Total Kwh: {tkw_r*MF:,} | Total Kvah: {tkv_r*MF:,} | Pf: {bpf:.3f}")
         tbl_r, rep_txt = list(), ""
         for rc in recs:
             tbl_r.append({
                 "Heat #": rc["heat_no"], "Tap Time": rc["end_time"], "Situation": rc["run_condition"].split("(")[0].strip(),
                 "Tons": rc["tapped_tons"], "u/Ton": rc["sec_kwh_ton"], "Kwh Units": rc["actual_kwh"],
-                "Kvah Units": rc["actual_kvah"], "PF": f"{rc['calc_pf']:.3f}", "End kWh": rc["end_kwh"], "End kVAh": rc["end_kvah"]
+                "Kvah Units": rc["actual_kvah"], "PF": f"{rc['calc_pf']:.3f}"
             })
-            rep_txt += (
-                f"--- Heat #{rc['heat_no']} ---\n"
-                f"Heat Taping Time : {rc['end_time']}\n"
-                f"Kwh units        : {rc['actual_kwh']}\n"
-                f"Kvah units       : {rc['actual_kvah']}\n"
-                f"Pf.              : {rc['calc_pf']:.3f}\n\n"
-            )
+            rep_txt += f"--- Heat #{rc['heat_no']} ---\nHeat Taping Time : {rc['end_time']}\nKwh units        : {rc['actual_kwh']}\nKvah units       : {rc['actual_kvah']}\nPf.              : {rc['calc_pf']:.3f}\n\n"
         st.dataframe(pd.DataFrame(tbl_r), use_container_width=True, hide_index=True)
-        st.markdown("#### 📲 Copy Full Report (All Heats):")
         st.code(rep_txt.strip(), language=None)
-
         if st.button("💾 Save All Heats to Database", type="primary", use_container_width=True):
             db.insert_bulk_heats(recs); st.rerun()
 
