@@ -1,7 +1,7 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace Ultimate V3", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="16.5T Furnace Ultimate V4", page_icon="⚡", layout="wide")
 st.title("⚡ 16.5T Furnace Advanced Master Control")
 
 # --- RULES & CONFIGURATION ---
@@ -34,10 +34,10 @@ def gn(v):
     d = "".join(c for c in str(v) if c.isdigit())
     return int(d) if d else 0
 
-tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat (Fixed kVAh)", "📋 2. 15-Min Register (Advanced)"])
+tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat (Checkbox Added)", "📋 2. 15-Min Register (Checkbox Added)"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT (kVAh RESTORED)
+# TAB 1: HEAT-BY-HEAT (OFF CHECKBOX LOGIC)
 # ==========================================
 with tab1:
     st.markdown("### 1️⃣ Meter Readings")
@@ -50,11 +50,10 @@ with tab1:
     t_kwh, t_kvah = ekw - skw, ekv - skv
     
     if t_kwh > 0:
-        # FIXED: Added kVAh back to display
         st.info(f"📊 **METER TOTAL:** kWh = `{t_kwh:,}` | kVAh = `{t_kvah:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
         
         nh = st.number_input("Total Heats?", 1, 20, 4)
-        hl = []
+        hl =
         bt = datetime.strptime("08:00 AM", "%I:%M %p")
         
         for i in range(1, int(nh) + 1):
@@ -71,9 +70,15 @@ with tab1:
                 # OFF & PROBLEM SECTIONS
                 col_off, col_prob = st.columns(2)
                 with col_off:
-                    st.markdown("🔴 **Furnace OFF Time**")
-                    off_f = st.text_input(f"OFF From", "", key=f"of_{i}")
-                    off_t = st.text_input(f"OFF To", "", key=f"ot_{i}")
+                    st.markdown("🔴 **Furnace OFF / Breakdown**")
+                    # CHECKBOX ADDED HERE
+                    is_off = st.checkbox("Was Furnace OFF?", key=f"chk_off_{i}")
+                    if is_off:
+                        off_f = st.text_input(f"OFF From", "", key=f"of_{i}")
+                        off_t = st.text_input(f"OFF To", "", key=f"ot_{i}")
+                    else:
+                        off_f, off_t = "", ""
+
                     doff_f, doff_t = pt(off_f, don), pt(off_t, don)
                     off_min = int((doff_t - doff_f).total_seconds()/60) if doff_f and doff_t else 0
                 
@@ -87,7 +92,7 @@ with tab1:
 
         if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
             sk = t_kwh // 8
-            k_sc = []
+            k_sc =
             for h in hl:
                 sc = (h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8)
                 if h["off_m"] > 0: sc *= 0.8
@@ -100,19 +105,15 @@ with tab1:
             kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]
             kv_s[-1] += ((t_kvah//8) - sum(kv_s))
             
-            rep_r, cp_t = [], ""
+            rep_r, cp_t =, ""
             for i, h in enumerate(hl):
                 k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
                 pf = round(k/v, 3)
-                
-                # FIXED: Added kVAh back to DataFrame
                 rep_r.append({
                     "Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "Time": h['dur'], 
                     "Ton": h['ton'], "OFF Time": f"{h['off_m']} min", 
                     "kWh": k, "kVAh": v, "PF": f"{pf:.3f}"
                 })
-                
-                # FIXED: Added kVAh back to Copy Text
                 cp_t += (
                     f"--- Heat #{h['no']} ---\n"
                     f"Heat ON Time     : {h['on']}\n"
@@ -127,7 +128,7 @@ with tab1:
             st.code(cp_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: 15-MIN REGISTER (UNCHANGED)
+# TAB 2: 15-MIN REGISTER (CHECKBOX LOGIC)
 # ==========================================
 with tab2:
     st.markdown("### 📋 Register Readings")
@@ -146,10 +147,16 @@ with tab2:
             st.subheader(f_name)
             fid = st.selectbox(f"Select Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
             
-            st.error(f"🔴 **Furnace {f_name} OFF (0 KW)**")
-            c_o1, c_o2 = st.columns(2)
-            o_f = c_o1.text_input("OFF From", "", key=f"of_{f_key}")
-            o_t = c_o2.text_input("OFF To", "", key=f"ot_{f_key}")
+            st.error(f"🔴 **Furnace {f_name} OFF**")
+            # CHECKBOX ADDED HERE
+            is_off = st.checkbox(f"Tick if {f_name} was OFF", key=f"off_chk_{f_key}")
+            
+            if is_off:
+                c_o1, c_o2 = st.columns(2)
+                o_f = c_o1.text_input("OFF From", "", key=f"of_{f_key}")
+                o_t = c_o2.text_input("OFF To", "", key=f"ot_{f_key}")
+            else:
+                o_f, o_t = "", ""
             
             st.warning(f"🟡 **Problem Running (Low KW)**")
             c_p1, c_p2, c_p3 = st.columns(3)
@@ -167,7 +174,7 @@ with tab2:
     if st.button("🚀 GENERATE REGISTER TABLE", type="primary", use_container_width=True):
         ds, de = pt(ts4), pt(te4, pt(ts4), True)
         if ds and de and act_diff > 0:
-            sl, cur = [], ds
+            sl, cur =, ds
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "fa": fa_d["id"], "fakw": 7000, "fastat": "Normal", "fb": fb_d["id"], "fbkw": 7000, "fbstat": "Normal"})
