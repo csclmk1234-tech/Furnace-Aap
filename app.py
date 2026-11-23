@@ -1,10 +1,10 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace Advanced", page_icon="⚡", layout="wide")
-st.title("⚡ 16.5T Furnace Master Control (Status-Wise)")
+st.set_page_config(page_title="16.5T Furnace Master Pro", page_icon="⚡", layout="wide")
+st.title("⚡ 16.5T Furnace Advanced Control System")
 
-# Rules for Tab 1 (Heat-by-Heat)
+# Tab 1 Rules (Strict PF & Weightage)
 COND_RULES = {
     "Normal Running": {"pf": (0.945, 0.982), "wt": 1.00},
     "Sintering (Lining Heat)": {"pf": (0.800, 0.880), "wt": 1.30}, 
@@ -33,140 +33,142 @@ def gn(v):
     d = "".join(c for c in str(v) if c.isdigit())
     return int(d) if d else 0
 
-tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat (With KW & Time)", "📋 2. 15-Min Register (Advanced Timeline)"])
+tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat Report", "📋 2. 15-Min Register (Multi-Status)"])
 
 # ==========================================
 # TAB 1: HEAT-BY-HEAT (PRESERVED)
 # ==========================================
 with tab1:
-    st.markdown("### 1️⃣ Readings & Total")
+    st.markdown("### 1️⃣ Meter Readings & Total")
     r1, r2 = st.columns(2)
-    skw = gn(r1.text_input("Start kWh", "160944480", key="h_skw"))
-    skv = gn(r1.text_input("Start kVAh", "169767296", key="h_skv"))
-    ekw = gn(r2.text_input("End kWh", "160983200", key="h_ekw"))
-    ekv = gn(r2.text_input("End kVAh", "169807360", key="h_ekv"))
+    skw = gn(r1.text_input("Start kWh Reading", "160944480", key="h_skw"))
+    skv = gn(r1.text_input("Start kVAh Reading", "169767296", key="h_skv"))
+    ekw = gn(r2.text_input("End kWh Reading", "160983200", key="h_ekw"))
+    ekv = gn(r2.text_input("End kVAh Reading", "169807360", key="h_ekv"))
     t_kwh, t_kvah = ekw - skw, ekv - skv
     if t_kwh > 0:
-        st.info(f"📊 **TOTAL:** kWh = `{t_kwh:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
+        st.info(f"📊 **TOTAL TO DIVIDE:** kWh = `{t_kwh:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
         nh = st.number_input("Total Heats?", 1, 20, 4)
         hl = []
-        bt = datetime.strptime("08:00 AM", "%I:%M %p")
+        base_t = datetime.strptime("08:00 AM", "%I:%M %p")
         for i in range(1, int(nh) + 1):
             with st.container(border=True):
+                st.markdown(f"**Heat #{i}**")
                 c1, c2, c3, c4 = st.columns(4)
-                on_t = c1.text_input(f"ON Time #{i}", (bt + timedelta(minutes=120*(i-1))).strftime("%I:%M %p"), key=f"on_{i}")
-                tp_t = c2.text_input(f"TAP Time #{i}", (bt + timedelta(minutes=115*i)).strftime("%I:%M %p"), key=f"tp_{i}")
-                don, dtp = pt(on_t), pt(tp_t, pt(on_t), True)
-                dm = int((dtp-don).total_seconds()/60) if don and dtp else 115
-                c3.markdown(f"**⏱️ Total Time:**\n\n{dm//60}h {dm%60}m")
-                ton = c4.number_input(f"Ton #{i}", 1.0, 22.0, 16.5, 0.1, key=f"tn_{i}")
+                on_t = c1.text_input(f"ON Time #{i}", (base_t + timedelta(minutes=120*(i-1))).strftime("%I:%M %p"), key=f"on_{i}")
+                tap_t = c2.text_input(f"TAP Time #{i}", (base_t + timedelta(minutes=115*i)).strftime("%I:%M %p"), key=f"tp_{i}")
+                don, dtp = pt(on_t), pt(tap_t, pt(on_t), True)
+                dur_m = int((dtp - don).total_seconds() / 60) if don and dtp else 115
+                c3.markdown(f"**⏱️ Total Time:**\n\n{dur_m//60}h {dur_m%60}m")
+                ton = c4.number_input(f"Melt Ton #{i}", 1.0, 22.0, 16.5, 0.1, key=f"tn_{i}")
                 x1, x2, x3 = st.columns(3)
-                cd = x1.selectbox(f"Situation #{i}", list(COND_RULES.keys()), key=f"cd_{i}")
-                lkw = x2.number_input(f"Low KW Running", 0, 7500, 0, key=f"lk_{i}")
-                lm = x3.number_input(f"Low KW Time(min)", 0, 300, 0, key=f"lm_{i}")
-                hl.append({"no": i, "on": on_t, "tap": tp_t, "dur": f"{dm//60}h {dm%60}m", "m": dm, "ton": ton, "cond": cd, "lkw": lkw, "lmin": lm, "pfr": COND_RULES[cd]["pf"]})
-        
+                cond = x1.selectbox(f"Situation #{i}", list(COND_RULES.keys()), key=f"cd_{i}")
+                l_kw = x2.number_input(f"Low KW Power", 0, 7500, 0, key=f"lkw_{i}")
+                l_min = x3.number_input(f"Low KW Duration(m)", 0, 300, 0, key=f"lmin_{i}")
+                hl.append({"no": i, "on": on_t, "tap": tap_t, "dur": f"{dur_m//60}h {dur_m%60}m", "m": dur_m, "ton": ton, "cond": cond, "lkw": l_kw, "lmin": l_min, "pfr": COND_RULES[cond]["pf"]})
+
         if st.button("🔥 GENERATE HEAT REPORT", type="primary"):
             sk = t_kwh // 8
-            k_sc = [(h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8) for h in hl]
-            kw_s = [int(round((s/sum(k_sc))*sk)) for s in k_sc]
+            k_scores = [(h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8) for h in hl]
+            kw_s = [int(round((s / sum(k_scores)) * sk)) for s in k_scores]
             kw_s[-1] += (sk - sum(kw_s))
-            v_sc = [kw_s[i]/random.uniform(*hl[i]["pfr"]) for i in range(len(hl))]
-            kv_s = [int(round((v/sum(v_sc))*(t_kvah//8))) for v in v_sc]
+            v_sc = [kw_s[i] / random.uniform(*hl[i]["pfr"]) for i in range(len(hl))]
+            kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]
             kv_s[-1] += ((t_kvah//8) - sum(kv_s))
-            rep_r, cp_t = [], ""
+            rep_r, copy_t = [], ""
             for i, h in enumerate(hl):
                 k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
-                rep_r.append({"Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "Time": h['dur'], "Ton": h['ton'], "kWh": k, "PF": f"{round(k/v,3):.3f}"})
-                cp_t += f"--- Heat #{h['no']} ---\nHeat ON Time: {h['on']}\nHeat Taping: {h['tap']} ({h['dur']})\nKwh: {k}\nPf: {round(k/v,3):.3f}\n\n"
+                rep_r.append({"Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "Total Time": h['dur'], "Ton": h['ton'], "kWh": k, "PF": f"{round(k/v,3):.3f}"})
+                copy_t += f"--- Heat #{h['no']} ---\nHeat ON Time     : {h['on']}\nHeat Taping Time : {h['tap']} ({h['dur']})\nMelting Ton      : {h['ton']} T\nKwh units        : {k}\nPf.              : {round(k/v,3):.3f}\n\n"
             st.dataframe(pd.DataFrame(rep_r), use_container_width=True, hide_index=True)
-            st.code(cp_t.strip(), language=None)
+            st.code(copy_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: 15-MIN REGISTER (TIMELINE FIXED)
+# TAB 2: 15-MIN REGISTER (MULTI-STATUS ENABLED)
 # ==========================================
 with tab2:
-    st.markdown("### 📋 Register Configuration")
+    st.markdown("### 📋 Advanced Register (GLD and OFF Separated)")
     rc1, rc2, rc3 = st.columns(3)
     ts4 = rc1.text_input("Shift Start Time", "8:00 AM", key="reg_ts")
     te4 = rc2.text_input("Shift End Time", "10:30 AM", key="reg_te")
-    rs4 = gn(rc3.text_input("Start KVAH Reading", "249983498"))
-    re4 = gn(rc3.text_input("End KVAH Reading", "250011382"))
+    rs4 = gn(rc3.text_input("Start KVAH (Reg)", "249983498"))
+    re4 = gn(rc3.text_input("End KVAH (Reg)", "250011382"))
     
-    act_diff = re4 - rs4
-    st.info(f"📊 **Meter Total:** `{act_diff:,}` Units")
-    tp_times = st.text_input("Tapping Times (comma)", "8:15 AM, 10:00 AM")
+    total_diff = re4 - rs4
+    st.info(f"📊 **Meter Total:** `{total_diff:,}` Units")
+    tp_list = st.text_input("Heat Tapping Times", "8:15 AM, 10:00 AM")
 
-    st.markdown("### 🔧 Furnace Timeline Manager")
-    
-    def status_ui(label, f_key):
+    def furnace_timeline_ui(f_name, f_key):
         with st.container(border=True):
-            st.subheader(label)
-            f_id = st.selectbox(f"Select Line", ["A1", "A2"] if "A" in label else ["B1", "B2"], key=f"id_{f_key}")
-            stat = st.selectbox(f"Status", ["Normal Running", "GLD Low KW", "OFF (0 KW)", "Holding", "Capacitor Fault"], key=f"st_{f_key}")
+            st.subheader(f_name)
+            fid = st.selectbox(f"Select Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
             
-            kw = 7000 # Default
-            if stat == "OFF (0 KW)": kw = 0
-            elif stat == "GLD Low KW": kw = st.number_input("Enter GLD KW", 500, 3000, 1000, key=f"kw_{f_key}")
-            elif stat == "Holding": kw = st.number_input("Enter Holding KW", 500, 2500, 1200, key=f"hkw_{f_key}")
-            elif stat == "Capacitor Fault": kw = st.number_input("Enter Fault KW", 500, 5000, 4500, key=f"ckw_{f_key}")
+            st.markdown("**1. GLD / Low KW Period**")
+            g_c1, g_c2, g_c3 = st.columns(3)
+            g_kw = g_c1.number_input("GLD KW", 500, 3000, 1000, key=f"gkw_{f_key}")
+            g_f = g_c2.text_input("GLD From", "", key=f"gf_{f_key}")
+            g_t = g_c3.text_input("GLD To", "", key=f"gt_{f_key}")
             
-            c1, c2 = st.columns(2)
-            frm = c1.text_input("From", "8:00 AM" if "A" in label else "", key=f"fr_{f_key}")
-            to = c2.text_input("To", "9:45 AM" if "A" in label else "", key=f"to_{f_key}")
-            return {"id": f_id, "stat": stat, "kw": kw, "from": frm, "to": to}
+            st.markdown("**2. OFF / Patching Period**")
+            o_c1, o_c2 = st.columns(2)
+            o_f = o_c1.text_input("OFF From", "", key=f"of_{f_key}")
+            o_t = o_c2.text_input("OFF To", "", key=f"ot_{f_key}")
+            
+            return {"id": fid, "gkw": g_kw, "gf": g_f, "gt": g_t, "of": o_f, "ot": o_t}
 
     col_a, col_b = st.columns(2)
-    with col_a: f_a = status_ui("Furnace A", "a")
-    with col_b: f_b = status_ui("Furnace B", "b")
+    with col_a: fa_data = furnace_timeline_ui("Furnace A", "a")
+    with col_b: fb_data = furnace_timeline_ui("Furnace B", "b")
 
-    if st.button("🚀 Generate Advanced Register", type="primary", use_container_width=True):
+    if st.button("🚀 Generate Register", type="primary", use_container_width=True):
         ds, de = pt(ts4), pt(te4, pt(ts4), True)
-        if ds and de and act_diff > 0:
+        if ds and de and total_diff > 0:
             sl, cur = [], ds
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
-                sl.append({"s": cur, "e": nx, "fa": f_a["id"], "fakw": 7000, "fastat": "Normal", "fb": f_b["id"], "fbkw": 7000, "fbstat": "Normal"})
+                sl.append({"s": cur, "e": nx, "fa": fa_data["id"], "fakw": 7000, "fastat": "Normal", "fb": fb_data["id"], "fbkw": 7000, "fbstat": "Normal"})
                 cur = nx
             
-            # Applying Timelines
-            as_f, as_t = pt(f_a["from"], ds), pt(f_a["to"], ds)
-            bs_f, bs_t = pt(f_b["from"], ds), pt(f_b["to"], ds)
-            
+            # Times Mapping
+            agf, agt = pt(fa_data["gf"], ds), pt(fa_data["gt"], ds)
+            aof, aot = pt(fa_data["of"], ds), pt(fa_data["ot"], ds)
+            bgf, bgt = pt(fb_data["gf"], ds), pt(fb_data["gt"], ds)
+            bof, bot = pt(fb_data["of"], ds), pt(fb_data["ot"], ds)
+
             for s in sl:
-                # Furnace A Logic
-                if as_f and as_t and s["s"] < as_t and s["e"] > as_f:
-                    s["fastat"], s["fakw"] = f_a["stat"], f_a["kw"]
-                    if f_a["kw"] == 0: s["fa"] = "OFF"
-                # Furnace B Logic
-                if bs_f and bs_t and s["s"] < bs_t and s["e"] > bs_f:
-                    s["fbstat"], s["fbkw"] = f_b["stat"], f_b["kw"]
-                    if f_b["kw"] == 0: s["fb"] = "OFF"
-                
-                # Tapping check (natural dip only for 'Normal' running)
-                for x in tp_times.split(","):
+                # Apply Furnace A
+                if agf and agt and s["s"] < agt and s["e"] > agf:
+                    s["fastat"], s["fakw"] = "GLD", fa_data["gkw"]
+                if aof and aot and s["s"] < aot and s["e"] > aof:
+                    s["fastat"], s["fakw"] = "OFF", 0
+                    s["fa"] = "OFF"
+                # Apply Furnace B
+                if bgf and bgt and s["s"] < bgt and s["e"] > bgf:
+                    s["fbstat"], s["fbkw"] = "GLD", fb_data["gkw"]
+                if bof and bot and s["s"] < bot and s["e"] > bof:
+                    s["fbstat"], s["fbkw"] = "OFF", 0
+                    s["fb"] = "OFF"
+                # Tapping check
+                for x in tp_list.split(","):
                     if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
                         if s["fastat"] == "Normal": s["fakw"] *= 0.75
                         if s["fbstat"] == "Normal": s["fbkw"] *= 0.75
 
-            # KW-based Proportional Weighting
-            wts = [(s["fakw"] + s["fbkw"]) * random.uniform(0.96, 1.04) for s in sl]
-            total_wt = sum(wts)
+            # Weight Distribution
+            weights = [(s["fakw"] + s["fbkw"]) * random.uniform(0.96, 1.04) for s in sl]
+            steps = [int(round((w/sum(weights))*total_diff)) for w in weights]
+            steps[-1] += (total_diff - sum(steps))
             
-            # Allocation with 3476 max cap for safety
-            steps = [int(round((w/total_wt)*act_diff)) for w in wts]
-            steps[-1] += (act_diff - sum(steps)) # Adjust total
-            
-            curr_r, rw = rs4, [{"Time": ds.strftime('%I:%M %p'), "A-Status": "-", "B-Status": "-", "KVAH": str(rs4), "Unit": "-"}]
+            curr_r, rw = rs4, [{"Time": ds.strftime('%I:%M %p'), "A-Line": "-", "B-Line": "-", "KVAH": str(rs4), "Unit": "-"}]
             for i, s in enumerate(sl):
                 curr_r += steps[i]
                 rw.append({
                     "Time": s["e"].strftime('%I:%M %p'),
-                    "A-Status": f"{s['fa']} ({s['fastat']})",
-                    "B-Status": f"{s['fb']} ({s['fbstat']})",
+                    "A-Line": f"{s['fa']} ({s['fastat']})",
+                    "B-Line": f"{s['fb']} ({s['fbstat']})",
                     "KVAH": str(int(curr_r)),
                     "Unit": str(int(steps[i]))
                 })
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success("✅ Advanced Register Generated Successfully!")
-                                                                 
+            st.success("✅ Multi-Status Register Generated!")
+            
