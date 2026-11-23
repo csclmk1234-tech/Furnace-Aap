@@ -1,13 +1,13 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-# CHANGED: Layout is now 'centered' for better Mobile View
-st.set_page_config(page_title="16.5T Furnace Ultimate V12", page_icon="⚡", layout="centered")
+# Layout centered for Mobile
+st.set_page_config(page_title="16.5T Furnace Ultimate V13", page_icon="⚡", layout="centered")
 st.title("⚡ 16.5T Furnace Master App")
 
-# --- RULES (PF Max Capped at 0.998) ---
+# --- RULES ---
 COND_RULES = {
-    "Normal Running": {"pf": (0.980, 0.998), "wt": 1.00}, # Updated High PF
+    "Normal Running": {"pf": (0.980, 0.998), "wt": 1.00},
     "Sintering (Lining Heat)": {"pf": (0.800, 0.880), "wt": 1.30}, 
     "GLD / Low KW Running": {"pf": (0.840, 0.890), "wt": 1.15}, 
     "Capacitor Bank Fault": {"pf": (0.750, 0.820), "wt": 1.10},
@@ -52,7 +52,8 @@ with tab1:
     t_kwh, t_kvah = ekw - skw, ekv - skv
     if t_kwh > 0:
         pf_disp = t_kwh/t_kvah if t_kvah > 0 else 0
-        st.info(f"📊 **TOTAL:** kWh: `{t_kwh:,}` | PF: `{round(pf_disp,3)}`")
+        # FIX: Added kVAh back to display
+        st.info(f"📊 **TOTAL:** kWh: `{t_kwh:,}` | kVAh: `{t_kvah:,}` | PF: `{round(pf_disp,3)}`")
         
         nh = st.number_input("Total Heats", 1, 20, 4)
         hl = []
@@ -108,7 +109,6 @@ with tab1:
             for i, h in enumerate(hl):
                 k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
                 pf = k/v
-                # PF CAP 0.998
                 if pf > 0.998:
                     v = int(k / 0.998) + 8
                     pf = k/v
@@ -119,7 +119,7 @@ with tab1:
             st.code(cp_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: REGISTER (MOBILE OPTIMIZED)
+# TAB 2: REGISTER (FIXED KW INPUT)
 # ==========================================
 with tab2:
     st.markdown("### 📋 Register Readings")
@@ -129,7 +129,8 @@ with tab2:
     re4 = gn(st.text_input("End KVAH", "250534412"))
     
     act_diff = re4 - rs4
-    st.info(f"**Total Units:** `{act_diff:,}`")
+    # FIX: Explicitly says "Total kVAh"
+    st.info(f"**Total kVAh Diff:** `{act_diff:,}`")
     tp_list = st.text_input("Tapping Times", "12:15 AM")
 
     ds = pt(ts4)
@@ -139,8 +140,12 @@ with tab2:
     def f_control_ui(f_name, f_key, base_time):
         with st.container(border=True):
             st.subheader(f_name)
-            fid = st.selectbox("Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
-            norm_kw = st.number_input(f"Avg KW", 3000, 8000, 5600, key=f"nk_{f_key}")
+            
+            # FIX: Moved KW Input to TOP for visibility
+            c_kw1, c_kw2 = st.columns([1, 2])
+            fid = c_kw1.selectbox("Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
+            # Explicit Label and Default 5600
+            norm_kw = c_kw2.number_input(f"Set Panel KW", 3000, 8000, 5600, step=50, key=f"nk_{f_key}")
 
             is_off = st.checkbox(f"Tick if OFF", key=f"off_chk_{f_key}")
             o_f, o_t = "", ""
@@ -218,4 +223,4 @@ with tab2:
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A-Line": f"{s['fa']} ({s['fastat']})", "B-Line": f"{s['fb']} ({s['fbstat']})", "KVAH": str(int(curr_r)), "Unit": str(int(final_units[i]))})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
             st.success(f"Done! Total: {sum(final_units):,}")
-                    
+                
