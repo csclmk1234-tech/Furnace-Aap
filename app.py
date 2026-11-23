@@ -1,7 +1,7 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace Ultimate V10", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="16.5T Furnace Ultimate V11", page_icon="⚡", layout="wide")
 st.title("⚡ 16.5T Furnace Advanced Master Control")
 
 # --- RULES ---
@@ -16,25 +16,18 @@ COND_RULES = {
 
 def pt(s, b=None, next_day_check=False):
     if not s: return None
-    # AGGRESSIVE CLEANING
     s = str(s).strip().lower().replace(".", ":").replace(" ", "")
-    # Add space before am/pm if missing for standard parsing
     if "am" in s: s = s.replace("am", " am")
     if "pm" in s: s = s.replace("pm", " pm")
     
     formats = ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p"]
-    
     for f in formats:
         try:
             d = datetime.strptime(s.strip(), f)
-            # Use current date as base if b is None
             now = datetime.now()
             base_date = b if b else now
             d = d.replace(year=base_date.year, month=base_date.month, day=base_date.day)
-            
-            # Smart Date Rollover
-            if next_day_check and b and d < b: 
-                d += timedelta(days=1)
+            if next_day_check and b and d < b: d += timedelta(days=1)
             return d
         except: pass
     return None
@@ -117,7 +110,7 @@ with tab1:
             st.code(cp_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: REGISTER (DEBUGGER ADDED)
+# TAB 2: REGISTER (LOAD KW ADDED)
 # ==========================================
 with tab2:
     st.markdown("### 📋 Register Readings")
@@ -129,7 +122,7 @@ with tab2:
     exp_total = gn(c3.text_input("Verify Total", str(act_diff)))
     tp_list = st.text_input("Tapping Times (comma)", "12:15 AM")
 
-    # BASE TIME FOR CALCULATIONS
+    # BASE TIME
     ds = pt(ts4)
     if not ds: st.error("❌ Invalid Start Time"); st.stop()
     de = pt(te4, ds, True)
@@ -139,6 +132,10 @@ with tab2:
             st.subheader(f_name)
             fid = st.selectbox("Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
             
+            # --- NEW: AVG RUNNING KW INPUT ---
+            st.info("⚡ **Avg Normal Load**")
+            norm_kw = st.number_input(f"Avg Running KW (Panel)", 3000, 8000, 5600, key=f"nk_{f_key}")
+
             st.error(f"🔴 **Furnace {f_name} OFF**")
             is_off = st.checkbox(f"Tick if {f_name} OFF", key=f"off_chk_{f_key}")
             o_f, o_t = "", ""
@@ -147,13 +144,10 @@ with tab2:
                 o_f = c_o1.text_input("OFF From", "", key=f"of_{f_key}")
                 o_t = c_o2.text_input("OFF To", "", key=f"ot_{f_key}")
                 
-                # --- DEBUG CONFIRMATION ---
                 d_start = pt(o_f, base_time, True)
                 d_end = pt(o_t, d_start, True)
                 if d_start and d_end:
-                    st.success(f"✅ OFF Detected: {d_start.strftime('%I:%M %p')} ➝ {d_end.strftime('%I:%M %p')}")
-                elif o_f or o_t:
-                    st.error("⚠️ Invalid Time Format (Try: 10:00 PM)")
+                    st.success(f"✅ OFF: {d_start.strftime('%I:%M %p')} ➝ {d_end.strftime('%I:%M %p')}")
 
             st.warning(f"🟡 **Problem**")
             c_p1, c_p2, c_p3 = st.columns(3)
@@ -162,7 +156,7 @@ with tab2:
             p_f = c_p3.text_input("From", "", key=f"pf_{f_key}")
             p_t = st.text_input("To", "", key=f"pt_{f_key}")
             
-            return {"id": fid, "off": (o_f, o_t), "prob": (p_st, p_kw, p_f, p_t)}
+            return {"id": fid, "nkw": norm_kw, "off": (o_f, o_t), "prob": (p_st, p_kw, p_f, p_t)}
 
     ca, cb = st.columns(2)
     with ca: fa_d = f_control_ui("Furnace A", "a", ds)
@@ -173,15 +167,19 @@ with tab2:
             sl, cur = [], ds
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
-                sl.append({"s": cur, "e": nx, "fa": fa_d["id"], "fakw": 7000, "fastat": "Normal", "fb": fb_d["id"], "fbkw": 7000, "fbstat": "Normal"})
+                # Use User-Defined Normal KW
+                sl.append({
+                    "s": cur, "e": nx, 
+                    "fa": fa_d["id"], "fakw": fa_d["nkw"], "fastat": "Normal", 
+                    "fb": fb_d["id"], "fbkw": fb_d["nkw"], "fbstat": "Normal"
+                })
                 cur = nx
             
             for s in sl:
                 # APPLY OFF
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     off_s, off_e = f_data["off"]
-                    if not off_s: continue # Skip if empty
-                    
+                    if not off_s: continue 
                     off_from = pt(off_s, ds, True)
                     off_to = pt(off_e, off_from, True)
                     
@@ -193,10 +191,8 @@ with tab2:
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     p_st, p_kw, p_f, p_t = f_data["prob"]
                     if p_st == "None": continue
-                    
                     prob_from = pt(p_f, ds, True)
                     prob_to = pt(p_t, prob_from, True)
-                    
                     if prob_from and prob_to and s["s"] < prob_to and s["e"] > prob_from:
                         if f_side == "a" and s["fastat"] != "OFF": s["fastat"], s["fakw"] = p_st, p_kw
                         if f_side == "b" and s["fbstat"] != "OFF": s["fbstat"], s["fbkw"] = p_st, p_kw
