@@ -1,7 +1,7 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace Ultimate V2", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="16.5T Furnace Ultimate V3", page_icon="⚡", layout="wide")
 st.title("⚡ 16.5T Furnace Advanced Master Control")
 
 # --- RULES & CONFIGURATION ---
@@ -34,10 +34,10 @@ def gn(v):
     d = "".join(c for c in str(v) if c.isdigit())
     return int(d) if d else 0
 
-tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat (Time & OFF Logic)", "📋 2. 15-Min Register (Advanced Control)"])
+tab1, tab2 = st.tabs(["🔥 1. Heat-by-Heat (Fixed kVAh)", "📋 2. 15-Min Register (Advanced)"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT (OFF BUTTON SEPARATED)
+# TAB 1: HEAT-BY-HEAT (kVAh RESTORED)
 # ==========================================
 with tab1:
     st.markdown("### 1️⃣ Meter Readings")
@@ -46,12 +46,17 @@ with tab1:
     skv = gn(r1.text_input("Start kVAh Reading", "169767296", key="h_skv"))
     ekw = gn(r2.text_input("End kWh Reading", "160983200", key="h_ekw"))
     ekv = gn(r2.text_input("End kVAh Reading", "169807360", key="h_ekv"))
+    
     t_kwh, t_kvah = ekw - skw, ekv - skv
+    
     if t_kwh > 0:
-        st.info(f"📊 **METER TOTAL:** kWh = `{t_kwh:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
+        # FIXED: Added kVAh back to display
+        st.info(f"📊 **METER TOTAL:** kWh = `{t_kwh:,}` | kVAh = `{t_kvah:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
+        
         nh = st.number_input("Total Heats?", 1, 20, 4)
         hl = []
         bt = datetime.strptime("08:00 AM", "%I:%M %p")
+        
         for i in range(1, int(nh) + 1):
             with st.container(border=True):
                 st.markdown(f"**Heat #{i}**")
@@ -63,51 +68,69 @@ with tab1:
                 c3.markdown(f"**⏱️ Total Time:**\n\n{dm//60}h {dm%60}m")
                 ton = c4.number_input(f"Melt Ton #{i}", 1.0, 22.0, 16.5, 0.1, key=f"tn_{i}")
 
-                # OFF & PROBLEM SECTIONS SEPARATED
+                # OFF & PROBLEM SECTIONS
                 col_off, col_prob = st.columns(2)
                 with col_off:
-                    st.markdown("🔴 **Furnace OFF Time (Breakdown/Patching)**")
+                    st.markdown("🔴 **Furnace OFF Time**")
                     off_f = st.text_input(f"OFF From", "", key=f"of_{i}")
                     off_t = st.text_input(f"OFF To", "", key=f"ot_{i}")
                     doff_f, doff_t = pt(off_f, don), pt(off_t, don)
                     off_min = int((doff_t - doff_f).total_seconds()/60) if doff_f and doff_t else 0
                 
                 with col_prob:
-                    st.markdown("🟡 **Low Power / Problem Running**")
+                    st.markdown("🟡 **Problem / Low Power**")
                     cond = st.selectbox(f"Select Problem", list(COND_RULES.keys()), key=f"cd_{i}")
                     lkw = st.number_input(f"Low KW Load", 0, 7500, 1000 if "GLD" in cond else 0, key=f"lk_{i}")
                     lmin = st.number_input(f"Duration (min)", 0, 300, key=f"lm_{i}")
                 
                 hl.append({"no": i, "on": on_t, "tap": tp_t, "dur": f"{dm//60}h {dm%60}m", "ton": ton, "cond": cond, "lkw": lkw, "lmin": lmin, "off_m": off_min, "pfr": COND_RULES[cond]["pf"]})
 
-        if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
+        if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
             sk = t_kwh // 8
             k_sc = []
             for h in hl:
-                # Weight Calculation: Active Ton load + (Low Power load) - (OFF Time penalty)
                 sc = (h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8)
-                if h["off_m"] > 0: sc *= 0.8 # Penalty for OFF time in a heat
+                if h["off_m"] > 0: sc *= 0.8
                 k_sc.append(sc)
             
             kw_s = [int(round((s / sum(k_sc)) * sk)) for s in k_sc]
             kw_s[-1] += (sk - sum(kw_s))
+            
             v_sc = [kw_s[i] / random.uniform(*hl[i]["pfr"]) for i in range(len(hl))]
             kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]
             kv_s[-1] += ((t_kvah//8) - sum(kv_s))
             
             rep_r, cp_t = [], ""
             for i, h in enumerate(hl):
-                k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8); pf = round(k/v, 3)
-                rep_r.append({"Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "Time": h['dur'], "Ton": h['ton'], "OFF Time": f"{h['off_m']} min", "kWh": k, "PF": f"{pf:.3f}"})
-                cp_t += f"--- Heat #{h['no']} ---\nHeat ON Time: {h['on']}\nHeat Taping: {h['tap']} ({h['dur']})\nOFF Time: {h['off_m']}m\nKwh: {k}\nPf: {pf:.3f}\n\n"
+                k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
+                pf = round(k/v, 3)
+                
+                # FIXED: Added kVAh back to DataFrame
+                rep_r.append({
+                    "Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "Time": h['dur'], 
+                    "Ton": h['ton'], "OFF Time": f"{h['off_m']} min", 
+                    "kWh": k, "kVAh": v, "PF": f"{pf:.3f}"
+                })
+                
+                # FIXED: Added kVAh back to Copy Text
+                cp_t += (
+                    f"--- Heat #{h['no']} ---\n"
+                    f"Heat ON Time     : {h['on']}\n"
+                    f"Heat Taping Time : {h['tap']} ({h['dur']})\n"
+                    f"OFF Time         : {h['off_m']}m\n"
+                    f"Kwh units        : {k}\n"
+                    f"Kvah units       : {v}\n"
+                    f"Pf.              : {pf:.3f}\n\n"
+                )
+            
             st.dataframe(pd.DataFrame(rep_r), use_container_width=True, hide_index=True)
             st.code(cp_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: 15-MIN REGISTER (OFF BUTTON FIXED)
+# TAB 2: 15-MIN REGISTER (UNCHANGED)
 # ==========================================
 with tab2:
-    st.markdown("### 📋 Register Readings & Verification")
+    st.markdown("### 📋 Register Readings")
     c1, c2, c3 = st.columns(3)
     ts4, rs4 = c1.text_input("Shift Start Time", "8:00 AM"), gn(c1.text_input("Start KVAH", "249983498"))
     te4, re4 = c2.text_input("Shift End Time", "10:30 AM"), gn(c2.text_input("End KVAH", "250011382"))
@@ -123,13 +146,11 @@ with tab2:
             st.subheader(f_name)
             fid = st.selectbox(f"Select Line", ["A1", "A2"] if "A" in f_name else ["B1", "B2"], key=f"id_{f_key}")
             
-            # 1. DEDICATED OFF SECTION
             st.error(f"🔴 **Furnace {f_name} OFF (0 KW)**")
             c_o1, c_o2 = st.columns(2)
             o_f = c_o1.text_input("OFF From", "", key=f"of_{f_key}")
             o_t = c_o2.text_input("OFF To", "", key=f"ot_{f_key}")
             
-            # 2. DEDICATED PROBLEM SECTION
             st.warning(f"🟡 **Problem Running (Low KW)**")
             c_p1, c_p2, c_p3 = st.columns(3)
             p_st = c_p1.selectbox("Problem", ["None", "GLD", "Holding", "Sintering", "Capacitor"], key=f"ps_{f_key}")
@@ -153,14 +174,14 @@ with tab2:
                 cur = nx
             
             for s in sl:
-                # Apply OFF Times (Priority 1 - Zero KW)
+                # Apply OFF Times (Priority 1)
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     off_from, off_to = pt(f_data["off"][0], ds), pt(f_data["off"][1], ds)
                     if off_from and off_to and s["s"] < off_to and s["e"] > off_from:
                         if f_side == "a": s["fa"], s["fastat"], s["fakw"] = "OFF", "OFF", 0
                         else: s["fb"], s["fbstat"], s["fbkw"] = "OFF", "OFF", 0
                 
-                # Apply Problems (Priority 2 - Low KW)
+                # Apply Problems (Priority 2)
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     p_st, p_kw, p_f, p_t = f_data["prob"]
                     prob_f, prob_t = pt(p_f, ds), pt(p_t, ds)
@@ -170,7 +191,6 @@ with tab2:
                         if f_side == "b" and s["fbstat"] != "OFF":
                             s["fbstat"], s["fbkw"] = p_st, p_kw
 
-                # Tapping Dip
                 for x in tp_list.split(","):
                     if (dt := pt(x, ds)) and s["s"] <= dt < s["e"]:
                         if s["fastat"] == "Normal": s["fakw"] *= 0.78
@@ -180,7 +200,6 @@ with tab2:
             final_units = [int(round((w/sum(wts))*act_diff)) for w in wts]
             final_units[-1] += (act_diff - sum(final_units))
             
-            # Final No-Duplicate Polish
             for i in range(len(final_units)-1):
                 if final_units[i] == final_units[i+1]: final_units[i] += random.choice([-8, 8])
 
@@ -189,5 +208,5 @@ with tab2:
                 curr_r += final_units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A-Line": f"{s['fa']} ({s['fastat']})", "B-Line": f"{s['fb']} ({s['fbstat']})", "KVAH": str(int(curr_r)), "Unit": str(int(final_units[i]))})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success(f"Register Table Generated! Sum: {sum(final_units):,}")
-                    
+            st.success(f"Register Generated Successfully! Sum: {sum(final_units):,}")
+            
