@@ -1,7 +1,7 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace Ultimate V7", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="16.5T Furnace Ultimate V8", page_icon="⚡", layout="wide")
 st.title("⚡ 16.5T Furnace Advanced Master Control")
 
 # --- RULES & CONFIGURATION ---
@@ -54,7 +54,7 @@ with tab1:
         st.info(f"📊 **METER TOTAL:** kWh = `{t_kwh:,}` | kVAh = `{t_kvah:,}` | PF = `{round(t_kwh/t_kvah,3) if t_kvah>0 else 0}`")
         
         nh = st.number_input("Total Heats?", 1, 20, 4)
-        hl =
+        hl = [] # FIXED: Added brackets
         bt = datetime.strptime("08:00 AM", "%I:%M %p")
         
         for i in range(1, int(nh) + 1):
@@ -91,7 +91,7 @@ with tab1:
 
         if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
             sk = t_kwh // 8
-            k_sc =
+            k_sc = [] # FIXED: Added brackets
             for h in hl:
                 sc = (h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8)
                 if h["off_m"] > 0: sc *= 0.8
@@ -104,7 +104,7 @@ with tab1:
             kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]
             kv_s[-1] += ((t_kvah//8) - sum(kv_s))
             
-            rep_r, cp_t =, "" 
+            rep_r, cp_t = [], "" # FIXED: Added brackets
             for i, h in enumerate(hl):
                 k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
                 pf = round(k/v, 3)
@@ -174,7 +174,7 @@ with tab2:
     if st.button("🚀 GENERATE REGISTER TABLE", type="primary", use_container_width=True):
         ds, de = pt(ts4), pt(te4, pt(ts4), True)
         if ds and de and act_diff > 0:
-            sl, cur =, ds
+            sl, cur = [], ds # FIXED: Added brackets
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "fa": fa_d["id"], "fakw": 7000, "fastat": "Normal", "fb": fb_d["id"], "fbkw": 7000, "fbstat": "Normal"})
@@ -219,4 +219,4 @@ with tab2:
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A-Line": f"{s['fa']} ({s['fastat']})", "B-Line": f"{s['fb']} ({s['fbstat']})", "KVAH": str(int(curr_r)), "Unit": str(int(final_units[i]))})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
             st.success(f"Register Generated! Total: {sum(final_units):,}")
-    
+            
