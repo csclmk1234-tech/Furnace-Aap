@@ -37,7 +37,7 @@ def gn(v):
     d = "".join(c for c in str(v) if c.isdigit())
     return int(d) if d else 0
 
-tab1, tab2 = st.tabs(["🔥 Heat Report", "📋 Shift Register"])
+tab1, tab2 = st.tabs(["🔥 Heat Report", "📋 15 Mint Register"])
 
 # ==========================================
 # TAB 1: HEAT-BY-HEAT
