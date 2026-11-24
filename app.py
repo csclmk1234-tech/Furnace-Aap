@@ -1,7 +1,7 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="16.5T Furnace V19", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="16.5T Furnace V20", page_icon="⚡", layout="centered")
 st.title("⚡ 16.5T Furnace Master App")
 
 # --- MEMORY FOR AUTO-COPY ---
@@ -48,7 +48,7 @@ tab1, tab2 = st.tabs(["🔥 Heat Report", "📋 Shift Register"])
 with tab1:
     st.markdown("### 1️⃣ Meter Readings")
     
-    # AUTO COPY BUTTON (4th Point Fix)
+    # AUTO COPY BUTTON
     if st.button("🔄 Paste Last Heat End Readings"):
         st.session_state.temp_skw = st.session_state.last_ekw
         st.session_state.temp_skv = st.session_state.last_ekv
@@ -71,7 +71,7 @@ with tab1:
         st.info(f"📊 **TOTAL:** kWh: `{t_kwh:,}` | kVAh: `{t_kvah:,}` | PF: `{round(pf_disp,3)}`")
         
         nh = st.number_input("Total Heats", 1, 20, 4)
-        hl =
+        hl = [] # FIXED: Added brackets
         bt = datetime.strptime("08:00 AM", "%I:%M %p")
         
         for i in range(1, int(nh) + 1):
@@ -107,7 +107,7 @@ with tab1:
 
         if st.button("🔥 GENERATE REPORT", type="primary", use_container_width=True):
             sk = t_kwh // 8
-            k_sc =
+            k_sc = [] # FIXED: Added brackets
             for h in hl:
                 sc = (h["ton"] * COND_RULES[h["cond"]]["wt"]) + ((h["lkw"]*h["lmin"])/60/8)
                 if h["off_m"] > 0: sc *= 0.8
@@ -118,7 +118,7 @@ with tab1:
             kv_s = [int(round((v / sum(v_sc)) * (t_kvah//8))) for v in v_sc]
             kv_s[-1] += ((t_kvah//8) - sum(kv_s))
             
-            rep_r, cp_t =, ""
+            rep_r, cp_t = [], "" # FIXED: Added brackets
             for i, h in enumerate(hl):
                 k, v = kw_s[i]*8, max(kw_s[i]*8+8, kv_s[i]*8)
                 pf = k/v
@@ -130,7 +130,7 @@ with tab1:
             st.code(cp_t.strip(), language=None)
 
 # ==========================================
-# TAB 2: REGISTER (TAPPING RANGE ADDED)
+# TAB 2: REGISTER
 # ==========================================
 with tab2:
     st.markdown("### 📋 Register Readings")
@@ -193,14 +193,14 @@ with tab2:
 
     if st.button("🚀 GENERATE TABLE", type="primary", use_container_width=True):
         if act_diff > 0:
-            sl, cur =, ds
+            sl, cur = [], ds # FIXED: Added brackets
             while cur < de:
                 nx = min(cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "fa": fa_d["id"], "fakw": fa_d["nkw"], "fastat": "Normal", "fb": fb_d["id"], "fbkw": fb_d["nkw"], "fbstat": "Normal"})
                 cur = nx
             
             for s in sl:
-                # 1. APPLY OFF (Priority 1)
+                # 1. APPLY OFF
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     off_s, off_e = f_data["off"]
                     if not off_s: continue 
@@ -210,7 +210,7 @@ with tab2:
                         if f_side == "a": s["fa"], s["fastat"], s["fakw"] = "OFF", "OFF", 0
                         else: s["fb"], s["fbstat"], s["fbkw"] = "OFF", "OFF", 0
 
-                # 2. APPLY TAPPING (Priority 2 - Replaces Normal with Low KW)
+                # 2. APPLY TAPPING
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     tap_s, tap_e = f_data["tap"]
                     if not tap_s: continue
@@ -218,14 +218,13 @@ with tab2:
                     t_to = pt(tap_e, t_from, True)
                     
                     if t_from and t_to and s["s"] < t_to and s["e"] > t_from:
-                        # Holding Load during Tapping (~1500 KW)
                         HOLDING_KW = 1500 
                         if f_side == "a" and s["fastat"] == "Normal": 
                             s["fastat"], s["fakw"] = "Tapping", HOLDING_KW
                         if f_side == "b" and s["fbstat"] == "Normal": 
                             s["fbstat"], s["fbkw"] = "Tapping", HOLDING_KW
                 
-                # 3. APPLY PROBLEMS (Priority 3)
+                # 3. APPLY PROBLEMS
                 for f_data, f_side in [(fa_d, "a"), (fb_d, "b")]:
                     p_st, p_kw, p_f, p_t = f_data["prob"]
                     if p_st == "None": continue
@@ -241,7 +240,7 @@ with tab2:
             for i in range(len(final_units)-1):
                 if final_units[i] == final_units[i+1]: final_units[i] += random.choice([-8, 8])
 
-            curr_r, rw = rs4,
+            curr_r, rw = rs4, [] # FIXED: Added brackets
             copy_txt = f"⚡ *15-Min Register* ({ts4} - {te4})\n"
             copy_txt += f"Total kVAh: {act_diff:,}\n\n"
             copy_txt += "Time | A | B | Unit\n" + "-"*25 + "\n"
@@ -261,4 +260,4 @@ with tab2:
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
             st.code(copy_txt, language=None)
             st.success(f"Total: {sum(final_units):,}")
-                    
+                
