@@ -2,8 +2,8 @@ import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
 # Mobile Optimized
-st.set_page_config(page_title="16.5T Furnace V32", page_icon="⚡", layout="centered")
-st.title("⚡ 16.5T Furnace Master Pro V32")
+st.set_page_config(page_title="16.5T Furnace V33", page_icon="⚡", layout="centered")
+st.title("⚡ 16.5T Furnace Master Pro V33")
 
 # Situation Load/Weight Rules
 LOAD_MAP = {
@@ -54,7 +54,7 @@ def gn(v):
 tab1, tab2 = st.tabs(["🔥 Classic Heat Report", "📋 15-Min Register"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT (CLASSIC LOGIC)
+# TAB 1: HEAT-BY-HEAT (CLASSIC LOGIC FIXED)
 # ==========================================
 with tab1:
     st.markdown("### 1️⃣ Shift Meter Readings")
@@ -92,23 +92,20 @@ with tab1:
                     p_ranges = parse_ranges(p_time, don)
                     p_min = sum([(r[1]-r[0]).total_seconds()/60 for r in p_ranges])
                 
+                # FIXED: tap_t was NameError, changed to tp_t
                 hl.append({
-                    "no": i, "on": on_t, "tap": tap_t, "dm": dm, "ton": ton, 
+                    "no": i, "on": on_t, "tap": tp_t, "dm": dm, "ton": ton, 
                     "cond": p_type, "p_min": p_min, "p_time": p_time
                 })
 
         if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
-            # Weight-based distribution logic
-            # Score = Tons * RunningTime - ProblemPenalty
             k_scores = []
             for h in hl:
                 base_score = (h["ton"] * 10) + (h["dm"] * 0.5)
-                # Adjust score if there was a problem
                 if h["p_min"] > 0:
                     base_score *= LOAD_MAP[h["cond"]]["wt"]
                 k_scores.append(base_score)
             
-            # Divide kWh into steps of 8
             total_steps = t_kwh // 8
             steps_per_heat = [int(round((s / sum(k_scores)) * total_steps)) for s in k_scores]
             steps_per_heat[-1] += (total_steps - sum(steps_per_heat))
@@ -118,7 +115,6 @@ with tab1:
             
             for i, h in enumerate(hl):
                 hk = steps_per_heat[i] * 8
-                # Calculate kVAh to keep PF under 0.999
                 hv = int(hk / random.uniform(0.985, 0.998))
                 pf = hk/hv
                 
@@ -133,7 +129,7 @@ with tab1:
             st.success(f"Units distributed in multiples of 8. Total: {sum(steps_per_heat)*8}")
 
 # ==========================================
-# TAB 2: REGISTER (MULTI-RANGE PRESERVED)
+# TAB 2: REGISTER (STABLE)
 # ==========================================
 with tab2:
     st.markdown("### 📋 15-Min Organic Register")
@@ -151,8 +147,8 @@ with tab2:
     def f_ui(label, key):
         with st.container(border=True):
             st.subheader(label)
-            nkw = st.number_input("Normal KW", 3000, 8000, 5600, key=f"reg_nk_{key}")
-            tap = st.text_input("🚰 Tapping Ranges", "", key=f"reg_tp_{key}", placeholder="10:10-10:30, 02:00-02:20")
+            nkw = st.number_input("Normal Running KW", 3000, 8000, 5600, key=f"reg_nk_{key}")
+            tap = st.text_input("🚰 Tapping Ranges", "", key=f"reg_tp_{key}", placeholder="10:10-10:30")
             p_type = st.selectbox("Problem Type", list(LOAD_MAP.keys()), key=f"reg_pt_{key}")
             p_time = st.text_input("Problem Ranges", "", key=f"reg_pm_{key}", placeholder="10:00-10:15")
             return {"nkw": nkw, "tap": tap, "p_type": p_type, "p_time": p_time}
@@ -171,13 +167,11 @@ with tab2:
             
             for s in sl:
                 for f_data, side in [(fa, "a"), (fb, "b")]:
-                    # Check Problems
                     for r_s, r_e in parse_ranges(f_data["p_time"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             load = LOAD_MAP[f_data["p_type"]]["kw"]
                             if side == "a": s["fa_kw"], s["fa_lab"] = load, f_data["p_type"]
                             else: s["fb_kw"], s["fb_lab"] = load, f_data["p_type"]
-                    # Check Tapping
                     for r_s, r_e in parse_ranges(f_data["tap"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             if side == "a": s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
@@ -186,7 +180,6 @@ with tab2:
             wts = [(s["fa_kw"] + s["fb_kw"]) * random.uniform(0.93, 1.07) for s in sl]
             units = [int(round((w/sum(wts))*act_diff)) for w in wts]
             
-            # Safety Cap 3476
             for _ in range(5):
                 ex = 0
                 for i in range(len(units)):
@@ -194,7 +187,8 @@ with tab2:
                 if ex == 0: break
                 targets = [i for i, x in enumerate(sl) if units[i] < 3476 and (x["fa_kw"]+x["fb_kw"]) > 4000]
                 if targets:
-                    for idx in targets: units[idx] += ex // len(targets)
+                    add = ex // len(targets)
+                    for idx in targets: units[idx] += add
             
             units[-1] += (act_diff - sum(units))
             curr_r, rw = rs4, []
@@ -204,4 +198,4 @@ with tab2:
             
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
             st.success("✅ Register Generated Successfully!")
-            
+                
