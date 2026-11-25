@@ -160,6 +160,22 @@ with tab2:
     st.markdown(f"**Total Units:** :blue[{act_diff:,}]")
     user_verify = gn(st.text_input("📊 Cross Match Units Box", str(act_diff)))
     ds, de = pt(ts4), pt(te4, pt(ts4), True)
+    def parse_tapping_list(tap_str, base_time):
+        slots = []
+        if not tap_str: return slots
+        for item in tap_str.split(","):
+            item = item.strip()
+            if not item: continue
+            if "-" in item:
+                a, z = item.split("-", 1)
+                slots.extend(get_slot_range(a.strip(), z.strip(), base_time))
+            else:
+                t_start = pt(item, base_time, True)
+                if t_start:
+                    # 1:00am par tapping start -> 1:00am se 1:08am (agle 15-min slot me count)
+                    slots.append((t_start, t_start + timedelta(minutes=8)))
+        return slots
+
     def f_ui(label, key):
         with st.container(border=True):
             st.subheader(label)
@@ -174,9 +190,7 @@ with tab2:
                     sent_f = sc1.text_input("Sentring From", "", key=f"sf_{key}")
                     sent_t = sc2.text_input("Sentring To", "", key=f"st_{key}")
 
-            tc1, tc2 = st.columns(2)
-            tap_f = tc1.text_input("🚰 Tapping From", "", key=f"tpf_{key}")
-            tap_t = tc2.text_input("🚰 Tapping To", "", key=f"tpt_{key}")
+            tap_times = st.text_input("🚰 Tapping Start Times (e.g. 1:00am, 2:45am)", "", key=f"tptimes_{key}")
             
             is_off = st.checkbox(f"🔴 {label} was OFF?", key=f"reg_off_chk_{key}")
             off_mode, off_f, off_t = "Time Range", "", ""
@@ -202,7 +216,7 @@ with tab2:
             
             return {
                 "nkw": nkw, "is_sent": is_sent, "sent_mode": sent_mode, "sent_f": sent_f, "sent_t": sent_t,
-                "tap_f": tap_f, "tap_t": tap_t, "is_off": is_off, "off_mode": off_mode, "off_f": off_f, "off_t": off_t,
+                "tap_times": tap_times, "is_off": is_off, "off_mode": off_mode, "off_f": off_f, "off_t": off_t,
                 "probs": [(p1t, p1_f, p1_to, p1k), (p2t, p2_f, p2_to, p2k)]
             }
 
@@ -225,10 +239,12 @@ with tab2:
                                 if s["s"] < r_e and s["e"] > r_s:
                                     if side == "a": s["fa_kw"], s["fa_lab"] = 2500, "Sentring"
                                     else: s["fb_kw"], s["fb_lab"] = 2500, "Sentring"
-                    for r_s, r_e in get_slot_range(f_data["tap_f"], f_data["tap_t"], ds):
+                    for r_s, r_e in parse_tapping_list(f_data["tap_times"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
-                            if side == "a": s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
-                            else: s["fb_kw"], s["fb_lab"] = 1500, "Tapping"
+                            # Aadhi tapping ke baad 9-15 kW holding + baaki charging ka avg (~1350 kW)
+                            tap_avg = int((f_data["nkw"] * 0.24) + random.randint(9, 15))
+                            if side == "a": s["fa_kw"], s["fa_lab"] = tap_avg, "Tapping"
+                            else: s["fb_kw"], s["fb_lab"] = tap_avg, "Tapping"
                     for p_t, p_f, p_to, p_k in f_data["probs"]:
                         for r_s, r_e in get_slot_range(p_f, p_to, ds):
                             if s["s"] < r_e and s["e"] > r_s:
@@ -245,7 +261,10 @@ with tab2:
                                     else: s["fb_kw"], s["fb_lab"] = 0, "OFF"
 
             wts = [(s["fa_kw"] + s["fb_kw"]) * random.uniform(0.94, 1.06) for s in sl]
-            units = [int(round((w/sum(wts))*act_diff)) for w in wts] if sum(wts) > 0 else [0] * len(sl)
+            if sum(wts) > 0:
+                units = [int(round((w / sum(wts)) * act_diff)) for w in wts]
+            else:
+                units = [0 for _ in sl]
             for _ in range(8):
                 excess = sum([max(0, u - 3476) for u in units])
                 units = [min(u, 3476) for u in units]
@@ -255,11 +274,10 @@ with tab2:
                     for idx in targets: units[idx] += excess // len(targets)
             if units: units[-1] += (act_diff - sum(units))
 
-            # Starting Reading Time Row (Unit = 0)
             curr_r = rs4
             rw = [{"Time": ds.strftime('%I:%M %p'), "A": "Start", "B": "Start", "kVAh": int(curr_r), "Unit": 0}]
             for i, s in enumerate(sl):
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-    
+            
