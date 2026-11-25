@@ -168,7 +168,6 @@ with tab2:
     st.markdown(f"**Total Units:** :blue[{act_diff:,}]")
     user_verify = gn(st.text_input("📊 Cross Match Units Box", str(act_diff)))
                 ds, de = pt(ts4), pt(te4, pt(ts4), True)
-    
     def f_ui(label, key):
         with st.container(border=True):
             st.subheader(label)
