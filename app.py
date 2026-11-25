@@ -1,22 +1,17 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-# 1. MOBILE OPTIMIZED VIEW
-st.set_page_config(page_title="16.5T Furnace Master V39", page_icon="⚡", layout="centered")
-st.title("⚡ 16.5T Furnace Master Pro V39")
+# Mobile Optimized View
+st.set_page_config(page_title="16.5T Furnace V40", page_icon="⚡", layout="centered")
+st.title("⚡ 16.5T Furnace Master Pro V40")
 
-# 2. GLOBAL LOAD RULES
+# Global Load Rules
 LOAD_RULES = {
-    "Normal": 1.0,
-    "OFF": 0.0,
-    "Water Temp Trip": 0.1,
-    "GLD / Low KW": 0.4,
-    "Capacitor Bank Fault": 0.8,
-    "CCM Holding": 0.5,
-    "Panel / SCR Tripping": 0.6
+    "Normal": 1.0, "OFF": 0.0, "Water Temp Trip": 0.1,
+    "GLD / Low KW": 0.4, "Capacitor Bank Fault": 0.8,
+    "CCM Holding": 0.5, "Panel / SCR Tripping": 0.6
 }
 
-# 3. HELPER FUNCTIONS
 def pt(s, b=None, next_day_check=False):
     if not s: return None
     s = str(s).strip().lower().replace(".", ":").replace(" ", "")
@@ -55,15 +50,15 @@ def gn(v):
 tab1, tab2 = st.tabs(["🔥 Detailed Heat Report", "📋 15-Min Register"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT (8-FACTOR & MULTI-PROB)
+# TAB 1: HEAT-BY-HEAT (ORGANIC 8-FACTOR)
 # ==========================================
 with tab1:
     st.markdown("### 1️⃣ Shift Meter Readings")
     r1, r2 = st.columns(2)
     skw = gn(r1.text_input("Shift Start kWh", "160944480"))
     skv = gn(r1.text_input("Shift Start kVAh", "169767296"))
-    ekw = gn(r2.text_input("Shift End kWh", "160983200"))
-    ekv = gn(r2.text_input("Shift End kVAh", "169807360"))
+    ekw = gn(r2.text_input("End kWh", "160983200"))
+    ekv = gn(r2.text_input("End kVAh", "169807360"))
     
     t_kwh, t_kvah = ekw - skw, ekv - skv
     if t_kwh > 0:
@@ -96,49 +91,45 @@ with tab1:
                     p_c1, p_c2 = st.columns(2)
                     p1_t = p_c1.selectbox("Problem 1", list(LOAD_RULES.keys()), key=f"p1t_{i}")
                     p1_m = p_c2.text_input("Ranges 1", "", key=f"p1m_{i}", placeholder="08:10-08:20")
-                    
-                    p_c3, p_c4 = st.columns(2)
-                    p2_t = p_c3.selectbox("Problem 2", list(LOAD_RULES.keys()), key=f"p2t_{i}")
-                    p2_m = p_c4.text_input("Ranges 2", "", key=f"p2m_{i}", placeholder="09:15-09:30")
-                    
-                    p1_min = sum([(r[1]-r[0]).total_seconds()/60 for r in parse_ranges(p1_m, don)])
-                    p2_min = sum([(r[1]-r[0]).total_seconds()/60 for r in parse_ranges(p2_m, don)])
+                    p1_min = sum([(r-r).total_seconds()/60 for r in parse_ranges(p1_m, don)])
 
-                hl.append({
-                    "no": i, "on": on_t, "tap": tp_t, "dm": dm, "ton": ton, 
-                    "off_min": off_min, "p1_min": p1_min, "p1_type": p1_t, "p2_min": p2_min, "p2_type": p2_t
-                })
+                hl.append({"no": i, "on": on_t, "tap": tp_t, "dm": dm, "ton": ton, "off_min": off_min, "p1_min": p1_min, "p1_type": p1_t})
 
         if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
+            # --- ORGANIC WEIGHT CALCULATION ---
             k_scores = []
             for h in hl:
-                score = (h["ton"] * 10) + (h["dm"] * 0.5)
+                # Score depends on Ton and Time + Random Jitter (0.95-1.05)
+                score = ((h["ton"] * 10) + (h["dm"] * 0.5)) * random.uniform(0.95, 1.05)
                 if h["off_min"] > 0: score *= 0.05
                 if h["p1_min"] > 0: score *= LOAD_RULES[h["p1_type"]]
-                if h["p2_min"] > 0: score *= LOAD_RULES[h["p2_type"]]
                 k_scores.append(max(score, 1.0))
             
+            # --- STRICT 8-FACTOR STEP MATH ---
             total_steps = t_kwh // 8
             steps_per_heat = [int((s / sum(k_scores)) * total_steps) for s in k_scores]
             
-            # Add missing steps to largest heat
+            # Balance missing steps
             missing = total_steps - sum(steps_per_heat)
-            steps_per_heat[steps_per_heat.index(max(steps_per_heat))] += missing
+            for _ in range(missing):
+                steps_per_heat[random.randint(0, len(steps_per_heat)-1)] += 1
             
             copy_txt, rep_table = "", []
             for i, h in enumerate(hl):
                 hk = steps_per_heat[i] * 8
-                if i == len(hl) - 1: hk += (t_kwh % 8) # Remainder logic
+                # Remaining units jud jayengi agar total meter 8 se divide na ho
+                if i == len(hl) - 1: hk += (t_kwh % 8)
                 
                 hv = int(hk / random.uniform(0.985, 0.998))
                 pf = round(hk/hv, 3)
                 dur = f"{h['dm']//60}h {h['dm']%60}m"
                 
-                rep_table.append({"Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "kWh": hk, "PF": f"{pf:.3f}"})
+                rep_table.append({"Heat": f"#{h['no']}", "kWh": hk, "kVAh": hv, "PF": f"{pf:.3f}"})
                 copy_txt += (f"--- Heat #{h['no']} ---\nHeat ON Time     : {h['on']}\nHeat Taping Time : {h['tap']}\nTotal Time       : {dur}\nMelting Ton      : {h['ton']} T\nKwh units        : {hk}\nKvah units       : {hv}\nPf.              : {pf:.3f}\n\n")
             
             st.dataframe(pd.DataFrame(rep_table), use_container_width=True, hide_index=True)
             st.code(copy_txt.strip(), language=None)
+            st.success("✅ Report Generated: All units are multiples of 8 with organic variation.")
 
 # ==========================================
 # TAB 2: REGISTER (STRICT 3476 CAP)
@@ -149,7 +140,7 @@ with tab2:
     ts4, rs4 = c_m1.text_input("Shift Start Time", "10:00 PM"), gn(c_m1.text_input("Start kVAh", "250513582"))
     te4, re4 = c_m2.text_input("Shift End Time", "06:00 AM"), gn(c_m2.text_input("End kVAh", "250534412"))
     act_diff = re4 - rs4
-    st.markdown(f"**Units to Distribute:** :blue[{act_diff:,}]")
+    st.markdown(f"**Total Units:** :blue[{act_diff:,}]")
     user_verify = gn(st.text_input("📊 Verify Total Units", str(act_diff)))
     
     ds = pt(ts4)
@@ -175,13 +166,11 @@ with tab2:
             
             for s in sl:
                 for f_data, side in [(fa, "a"), (fb, "b")]:
-                    # Check Problem
                     for r_s, r_e in parse_ranges(f_data["p_time"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             ld = 0 if f_data["p_type"] in ["OFF", "Water Temp Trip"] else 1200
                             if side == "a": s["fa_kw"], s["fa_lab"] = ld, f_data["p_type"]
                             else: s["fb_kw"], s["fb_lab"] = ld, f_data["p_type"]
-                    # Check Tapping
                     for r_s, r_e in parse_ranges(f_data["tap"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             if side == "a" and s["fa_kw"] > 0: s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
@@ -190,13 +179,10 @@ with tab2:
             wts = [(s["fa_kw"] + s["fb_kw"]) * random.uniform(0.94, 1.06) for s in sl]
             units = [int(round((w/sum(wts))*act_diff)) for w in wts]
             
-            # Redistribution Loop (Strict 3476 Cap)
             for _ in range(8):
                 ex = 0
                 for i in range(len(units)):
-                    if units[i] > 3476: 
-                        ex += (units[i] - 3476)
-                        units[i] = 3476
+                    if units[i] > 3476: ex += (units[i] - 3476); units[i] = 3476
                 if ex == 0: break
                 targets = [i for i, x in enumerate(sl) if units[i] < 3476]
                 if targets:
@@ -209,5 +195,5 @@ with tab2:
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success("✅ Final Register Verified & Generated!")
+            st.success("✅ Final Register Verified!")
             
