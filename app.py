@@ -167,7 +167,7 @@ with tab2:
     act_diff = re4 - rs4
     st.markdown(f"**Total Units:** :blue[{act_diff:,}]")
     user_verify = gn(st.text_input("📊 Cross Match Units Box", str(act_diff)))
-                ds, de = pt(ts4), pt(te4, pt(ts4), True)
+        ds, de = pt(ts4), pt(te4, pt(ts4), True)
     def f_ui(label, key):
         with st.container(border=True):
             st.subheader(label)
@@ -177,18 +177,15 @@ with tab2:
             tap = st.text_input("🚰 Tapping Range(s)", "", key=f"reg_tp_{key}")
             is_off = st.checkbox(f"{label} was OFF?", key=f"reg_off_chk_{key}")
             off_r = st.text_input("OFF Range(s)", "", key=f"reg_off_m_{key}") if is_off else ""
-            
             st.write("🛑 **Problem Slots**")
             px1, px2, px3 = st.columns(3)
             p1t = px1.selectbox("Slot 1", list(PROB_RULES.keys()), key=f"rpt1_{key}")
             p1m = px2.text_input("Range 1", "", key=f"rpm1_{key}")
             p1k = px3.number_input("KW", 0, 7500, 1200 if "GLD" in p1t else 0, key=f"rpk1_{key}")
-            
             px4, px5, px6 = st.columns(3)
             p2t = px4.selectbox("Slot 2", list(PROB_RULES.keys()), key=f"rpt2_{key}")
             p2m = px5.text_input("Range 2", "", key=f"rpm2_{key}")
             p2k = px6.number_input("KW ", 0, 7500, 0, key=f"rpk2_{key}")
-            
             return {"nkw": nkw, "is_sent": is_sent, "sent_r": sent_r, "tap": tap, "off": off_r, "probs": [(p1t, p1m, p1k), (p2t, p2m, p2k)]}
 
     if ds and de:
@@ -199,10 +196,8 @@ with tab2:
                 nx = min(cur + timedelta(minutes=15), de)
                 sl.append({"s": cur, "e": nx, "fa_kw": fa["nkw"], "fa_lab": "Normal", "fb_kw": fb["nkw"], "fb_lab": "Normal"})
                 cur = nx
-            
             for s in sl:
                 for f_data, side in [(fa, "a"), (fb, "b")]:
-                    # 0. Sentring Heat
                     if f_data["is_sent"]:
                         if not f_data["sent_r"].strip():
                             if side == "a": s["fa_kw"], s["fa_lab"] = 2500, "Sentring"
@@ -212,18 +207,15 @@ with tab2:
                                 if s["s"] < r_e and s["e"] > r_s:
                                     if side == "a": s["fa_kw"], s["fa_lab"] = 2500, "Sentring"
                                     else: s["fb_kw"], s["fb_lab"] = 2500, "Sentring"
-                    # 1. Tapping
                     for r_s, r_e in parse_ranges(f_data["tap"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             if side == "a": s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
                             else: s["fb_kw"], s["fb_lab"] = 1500, "Tapping"
-                    # 2. Multi Problems
                     for p_t, p_m, p_k in f_data["probs"]:
                         for r_s, r_e in parse_ranges(p_m, ds):
                             if s["s"] < r_e and s["e"] > r_s:
                                 if side == "a" and p_k <= s["fa_kw"]: s["fa_kw"], s["fa_lab"] = p_k, p_t
                                 if side == "b" and p_k <= s["fb_kw"]: s["fb_kw"], s["fb_lab"] = p_k, p_t
-                    # 3. OFF
                     for r_s, r_e in parse_ranges(f_data["off"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             if side == "a": s["fa_kw"], s["fa_lab"] = 0, "OFF"
@@ -239,10 +231,10 @@ with tab2:
                 if targets:
                     for idx in targets: units[idx] += excess // len(targets)
             units[-1] += (act_diff - sum(units))
-            
             curr_r, rw = rs4, []
             for i, s in enumerate(sl):
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-    
+
+                
