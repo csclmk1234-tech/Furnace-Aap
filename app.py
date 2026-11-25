@@ -1,11 +1,9 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-# Mobile Optimized View
 st.set_page_config(page_title="16T Furnace V53", page_icon="⚡", layout="centered")
 st.title("⚡ 16T Furnace Master Pro V53")
 
-# Default Weights & PF Impact for Breakdowns
 PROB_RULES = {
     "Normal": 1.0,
     "Water Temp Trip": 0.1,
@@ -15,7 +13,6 @@ PROB_RULES = {
     "Panel / SCR Tripping": 0.6
 }
 
-# Problem PF drop factor (jitna chhota number, utna PF girega breakdown mein)
 PROB_PF_FACTOR = {
     "Normal": 1.00,
     "Water Temp Trip": 0.96,
@@ -30,12 +27,10 @@ def pt(s, b=None, next_day_check=False):
     s = str(s).strip().lower().replace(".", ":").replace(" ", "")
     if "am" in s: s = s.replace("am", " am")
     if "pm" in s: s = s.replace("pm", " pm")
-    formats = ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p"]
-    for f in formats:
+    for f in ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p"]:
         try:
             d = datetime.strptime(s.strip(), f)
-            now = datetime.now()
-            base_date = b if b else now
+            base_date = b if b else datetime.now()
             d = d.replace(year=base_date.year, month=base_date.month, day=base_date.day)
             if next_day_check and b and d < b: d += timedelta(days=1)
             return d
@@ -45,8 +40,7 @@ def pt(s, b=None, next_day_check=False):
 def parse_ranges(input_str, base_time):
     ranges = []
     if not input_str: return ranges
-    segments = input_str.split(",")
-    for seg in segments:
+    for seg in input_str.split(","):
         if "-" in seg:
             try:
                 start_s, end_s = seg.split("-")
@@ -66,9 +60,6 @@ def fmt_dur(mins):
 
 tab1, tab2 = st.tabs(["🔥 8-Factor Heat Report", "📋 15-Min Register"])
 
-# ==========================================
-# TAB 1: HEAT-BY-HEAT (100% PER TON + 8-FACTOR)
-# ==========================================
 with tab1:
     st.markdown("### 1️⃣ Meter Readings Entry")
     r1, r2 = st.columns(2)
@@ -108,7 +99,7 @@ with tab1:
                     off_m = int((off_t - off_f).total_seconds() / 60) if off_f and off_t else 0
                 
                 net_m = max(1, dm - off_m)
-                st.caption(f"⏱️ **Total Heat Time:** `{fmt_dur(dm)}` | **OFF:** `{off_m} min` | **Net Run Time:** `{fmt_dur(net_m)}`")
+                st.caption(f"⏱️ **Total Time:** `{fmt_dur(dm)}` | **OFF:** `{off_m}m` | **Run:** `{fmt_dur(net_m)}`")
                 
                 with st.expander(f"⚠️ Multi-Problem Slots (H#{i})"):
                     px1, px2, px3 = st.columns(3)
@@ -121,74 +112,61 @@ with tab1:
                     p2m = px5.text_input("Range 2", "", key=f"p2m_{i}")
                     p2k = px6.number_input("KW ", 0, 7500, 0, key=f"p2k_{i}")
                     
-                    p1_min = sum([(end_t - start_t).total_seconds() / 60 for start_t, end_t in parse_ranges(p1m, don)])
-                    p2_min = sum([(end_t - start_t).total_seconds() / 60 for start_t, end_t in parse_ranges(p2m, don)])
+                    p1_min = sum([(e_t - s_t).total_seconds() / 60 for s_t, e_t in parse_ranges(p1m, don)])
+                    p2_min = sum([(e_t - s_t).total_seconds() / 60 for s_t, e_t in parse_ranges(p2m, don)])
                 
                 hl.append({
-                    "no": i, "on": on_t, "tap": tp_t, "dm": dm, "net_m": net_m, "ton": ton, 
-                    "sentring": is_sentring, "off_m": off_m, 
-                    "p1_t": p1t, "p1_m": p1_min, "p1_k": p1k, 
+                    "no": i, "on": on_t, "tap": tp_t, "dm": dm, "net_m": net_m, "ton": ton,
+                    "sentring": is_sentring, "off_m": off_m,
+                    "p1_t": p1t, "p1_m": p1_min, "p1_k": p1k,
                     "p2_t": p2t, "p2_m": p2_min, "p2_k": p2k
                 })
 
         if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
             k_scores, kv_scores = [], []
             for h in hl:
-                # 1. PURE PER-TON kWh SCORE (Time ka koi asar nahi)
                 ton_weight = float(h["ton"]) if h["ton"] > 0 else 8.0
-                if h["sentring"]:
-                    kw_score = ton_weight * 0.50
-                else:
-                    kw_score = ton_weight
+                kw_score = ton_weight * 0.50 if h["sentring"] else ton_weight
                 k_scores.append(max(kw_score, 0.1))
 
-                # 2. BREAKDOWN / SITUATION BASED PF & kVAh SCORE
                 pf_mult = 1.0
                 if h["sentring"]:
-                    pf_mult = 0.850  # Sentring PF 0.800 - 0.900 ke beech
+                    pf_mult = 0.850
                 else:
-                    # Agar OFF / Breakdown hua hai toh PF thoda drop hoga
                     if h["off_m"] > 0:
                         pf_mult *= 0.96
-                    # Problem 1 situation impact on PF
                     if h["p1_t"] != "Normal":
-                        dur_ratio1 = min(1.0, max(0.25, h["p1_m"] / h["net_m"])) if h["p1_m"] > 0 else 0.35
-                        kw_ratio1 = (h["p1_k"] / 5600.0) if h["p1_k"] > 0 else 0.5
-                        base_drop1 = PROB_PF_FACTOR.get(h["p1_t"], 0.94)
-                        pf_mult *= (1.0 - (1.0 - base_drop1) * dur_ratio1 * (1.2 - 0.4 * kw_ratio1))
-                    # Problem 2 situation impact on PF
+                        dur1 = min(1.0, max(0.25, h["p1_m"] / h["net_m"])) if h["p1_m"] > 0 else 0.35
+                        kwr1 = (h["p1_k"] / 5600.0) if h["p1_k"] > 0 else 0.5
+                        pf_mult *= (1.0 - (1.0 - PROB_PF_FACTOR.get(h["p1_t"], 0.94)) * dur1 * (1.2 - 0.4 * kwr1))
                     if h["p2_t"] != "Normal":
-                        dur_ratio2 = min(1.0, max(0.25, h["p2_m"] / h["net_m"])) if h["p2_m"] > 0 else 0.35
-                        kw_ratio2 = (h["p2_k"] / 5600.0) if h["p2_k"] > 0 else 0.5
-                        base_drop2 = PROB_PF_FACTOR.get(h["p2_t"], 0.94)
-                        pf_mult *= (1.0 - (1.0 - base_drop2) * dur_ratio2 * (1.2 - 0.4 * kw_ratio2))
+                        dur2 = min(1.0, max(0.25, h["p2_m"] / h["net_m"])) if h["p2_m"] > 0 else 0.35
+                        kwr2 = (h["p2_k"] / 5600.0) if h["p2_k"] > 0 else 0.5
+                        pf_mult *= (1.0 - (1.0 - PROB_PF_FACTOR.get(h["p2_t"], 0.94)) * dur2 * (1.2 - 0.4 * kwr2))
 
                 pf_mult = max(0.75, min(1.0, pf_mult))
                 kv_scores.append(max(kw_score / pf_mult, 0.1))
             
-            # 8-Factor Exact Per-Ton Distribution for kWh
             w_sum = sum(k_scores)
             kw_steps = t_kwh // 8
             kw_list = [int(round((s / w_sum) * kw_steps)) for s in k_scores]
             while sum(kw_list) < kw_steps:
-                ratios = [(kw_list[idx] / k_scores[idx]) for idx in range(len(hl))]
+                ratios = [kw_list[idx] / k_scores[idx] for idx in range(len(hl))]
                 kw_list[ratios.index(min(ratios))] += 1
             while sum(kw_list) > kw_steps:
-                ratios = [(kw_list[idx] / k_scores[idx]) for idx in range(len(hl))]
+                ratios = [kw_list[idx] / k_scores[idx] for idx in range(len(hl))]
                 kw_list[ratios.index(max(ratios))] -= 1
 
-            # 8-Factor Situation-Based Distribution for kVAh
             kv_sum = sum(kv_scores)
             kv_steps = t_kvah // 8
             kv_list = [int(round((s / kv_sum) * kv_steps)) for s in kv_scores]
             while sum(kv_list) < kv_steps:
-                ratios = [(kv_list[idx] / kv_scores[idx]) for idx in range(len(hl))]
+                ratios = [kv_list[idx] / kv_scores[idx] for idx in range(len(hl))]
                 kv_list[ratios.index(min(ratios))] += 1
             while sum(kv_list) > kv_steps:
-                ratios = [(kv_list[idx] / kv_scores[idx]) for idx in range(len(hl))]
+                ratios = [kv_list[idx] / kv_scores[idx] for idx in range(len(hl))]
                 kv_list[ratios.index(max(ratios))] -= 1
 
-            # Sentring PF clamp strictly between 0.800 and 0.900
             if len(hl) > 1:
                 for i, h in enumerate(hl):
                     if h["sentring"]:
@@ -211,4 +189,21 @@ with tab1:
                     hv += (t_kvah % 8)
                 pf = round(hk / hv, 3) if hv > 0 else 0
                 per_ton = round(hk / h["ton"], 1) if h["ton"] > 0 else 0
+                probs_active = [p for p in [h["p1_t"], h["p2_t"]] if p != "Normal"]
+                if h["off_m"] > 0: probs_active.append(f"OFF {h['off_m']}m")
+                prob_str = ", ".join(probs_active) if probs_active else "Normal"
+                s_tag = " (Sentring Heat)" if h["sentring"] else ""
+                
+                rep_table.append({"Heat": f"#{h['no']}{s_tag}", "Time": f"{h['dm']}m", "Tons": f"{h['ton']}T", "kWh": hk, "kWh/T": per_ton, "kVAh": hv, "PF": f"{pf:.3f}", "Status": prob_str})
+                copy_txt += f"--- Heat #{h['no']}{s_tag} ---\nHeat ON: {h['on']}\nHeat TAP: {h['tap']}\nTotal Time: {fmt_dur(h['dm'])}\nMelting: {h['ton']} T\nStatus: {prob_str}\nKwh: {hk} ({per_ton} kWh/T)\nKvah: {hv}\nPf: {pf:.3f}\n\n"
             
+            st.success("✅ Report Generated Successfully!")
+            st.dataframe(pd.DataFrame(rep_table), use_container_width=True, hide_index=True)
+            st.code(copy_txt.strip(), language=None)
+
+with tab2:
+    st.markdown("### 📋 15-Min Advanced Register")
+    c_m1, c_m2 = st.columns(2)
+    ts4 = c_m1.text_input("Reading Start Time (Reg)", "10:00 PM")
+    rs4 = gn(c_m1.text_input("Starting kVAh Meter", "250513582"))
+        
