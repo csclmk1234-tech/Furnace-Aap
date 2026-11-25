@@ -245,7 +245,7 @@ with tab2:
                                     else: s["fb_kw"], s["fb_lab"] = 0, "OFF"
 
             wts = [(s["fa_kw"] + s["fb_kw"]) * random.uniform(0.94, 1.06) for s in sl]
-            units = [int(round((w/sum(wts))*act_diff)) for w in wts] if sum(wts) > 0 else [0]*len(sl)
+            units = [int(round((w/sum(wts))*act_diff)) for w in wts] if sum(wts) > 0 else [0] * len(sl)
             for _ in range(8):
                 excess = sum([max(0, u - 3476) for u in units])
                 units = [min(u, 3476) for u in units]
@@ -254,7 +254,10 @@ with tab2:
                 if targets:
                     for idx in targets: units[idx] += excess // len(targets)
             if units: units[-1] += (act_diff - sum(units))
-            curr_r, rw = rs4, []
+
+            # Starting Reading Time Row (Unit = 0)
+            curr_r = rs4
+            rw = [{"Time": ds.strftime('%I:%M %p'), "A": "Start", "B": "Start", "kVAh": int(curr_r), "Unit": 0}]
             for i, s in enumerate(sl):
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
