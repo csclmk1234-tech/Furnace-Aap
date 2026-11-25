@@ -11,15 +11,22 @@ PROB_RULES = {
 
 def pt(s, b=None, next_day_check=False):
     if not s: return None
-    s = str(s).strip().lower().replace(".", ":").replace(" ", "")
-    if "am" in s: s = s.replace("am", " am")
-    if "pm" in s: s = s.replace("pm", " pm")
-    for f in ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p", "%I%p"]:
+    raw = str(s).strip().lower().replace(".", ":").replace(" ", "")
+    has_ampm = ("am" in raw) or ("pm" in raw)
+    raw = raw.replace("am", " am").replace("pm", " pm")
+    formats = ["%I:%M %p", "%I:%M%p", "%H:%M", "%I %p", "%I%p", "%I:%M", "%H"]
+    for f in formats:
         try:
-            d = datetime.strptime(s.strip(), f)
+            d = datetime.strptime(raw.strip(), f)
             base_date = b if b else datetime.now()
             d = d.replace(year=base_date.year, month=base_date.month, day=base_date.day)
-            if next_day_check and b and d < b: d += timedelta(days=1)
+            # Agar user ne AM/PM nahi likha (jaise 10:30) aur base time PM me hai
+            if not has_ampm and b and d.hour < 12 and b.hour >= 12:
+                d_pm = d + timedelta(hours=12)
+                if d_pm >= b:
+                    d = d_pm
+            if next_day_check and b and d < b:
+                d += timedelta(days=1)
             return d
         except: pass
     return None
@@ -172,7 +179,6 @@ with tab2:
             else:
                 t_start = pt(item, base_time, True)
                 if t_start:
-                    # 1:00am par tapping start -> 1:00am se 1:08am (agle 15-min slot me count)
                     slots.append((t_start, t_start + timedelta(minutes=8)))
         return slots
 
@@ -231,17 +237,17 @@ with tab2:
             for s in sl:
                 for f_data, side in [(fa, "a"), (fb, "b")]:
                     if f_data["is_sent"]:
-                        if f_data["sent_mode"] == "Full Shift":
+                        s_ranges = get_slot_range(f_data["sent_f"], f_data["sent_t"], ds)
+                        if f_data["sent_mode"] == "Full Shift" or not s_ranges:
                             if side == "a": s["fa_kw"], s["fa_lab"] = 2500, "Sentring"
                             else: s["fb_kw"], s["fb_lab"] = 2500, "Sentring"
                         else:
-                            for r_s, r_e in get_slot_range(f_data["sent_f"], f_data["sent_t"], ds):
+                            for r_s, r_e in s_ranges:
                                 if s["s"] < r_e and s["e"] > r_s:
                                     if side == "a": s["fa_kw"], s["fa_lab"] = 2500, "Sentring"
                                     else: s["fb_kw"], s["fb_lab"] = 2500, "Sentring"
                     for r_s, r_e in parse_tapping_list(f_data["tap_times"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
-                            # Aadhi tapping ke baad 9-15 kW holding + baaki charging ka avg (~1350 kW)
                             tap_avg = int((f_data["nkw"] * 0.24) + random.randint(9, 15))
                             if side == "a": s["fa_kw"], s["fa_lab"] = tap_avg, "Tapping"
                             else: s["fb_kw"], s["fb_lab"] = tap_avg, "Tapping"
@@ -251,11 +257,12 @@ with tab2:
                                 if side == "a" and p_k <= s["fa_kw"]: s["fa_kw"], s["fa_lab"] = p_k, p_t
                                 if side == "b" and p_k <= s["fb_kw"]: s["fb_kw"], s["fb_lab"] = p_k, p_t
                     if f_data["is_off"]:
-                        if f_data["off_mode"] == "Regular / Full Shift OFF":
+                        o_ranges = get_slot_range(f_data["off_f"], f_data["off_t"], ds)
+                        if f_data["off_mode"] == "Regular / Full Shift OFF" or not o_ranges:
                             if side == "a": s["fa_kw"], s["fa_lab"] = 0, "OFF"
                             else: s["fb_kw"], s["fb_lab"] = 0, "OFF"
                         else:
-                            for r_s, r_e in get_slot_range(f_data["off_f"], f_data["off_t"], ds):
+                            for r_s, r_e in o_ranges:
                                 if s["s"] < r_e and s["e"] > r_s:
                                     if side == "a": s["fa_kw"], s["fa_lab"] = 0, "OFF"
                                     else: s["fb_kw"], s["fb_lab"] = 0, "OFF"
@@ -280,4 +287,3 @@ with tab2:
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            
