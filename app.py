@@ -1,11 +1,11 @@
 import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
-# Mobile Optimized
-st.set_page_config(page_title="16.5T Furnace Master V37", page_icon="⚡", layout="centered")
-st.title("⚡ 16.5T Furnace Master Pro V37")
+# 1. MOBILE OPTIMIZED VIEW
+st.set_page_config(page_title="16.5T Furnace Master V39", page_icon="⚡", layout="centered")
+st.title("⚡ 16.5T Furnace Master Pro V39")
 
-# Global Load Rules
+# 2. GLOBAL LOAD RULES
 LOAD_RULES = {
     "Normal": 1.0,
     "OFF": 0.0,
@@ -16,6 +16,7 @@ LOAD_RULES = {
     "Panel / SCR Tripping": 0.6
 }
 
+# 3. HELPER FUNCTIONS
 def pt(s, b=None, next_day_check=False):
     if not s: return None
     s = str(s).strip().lower().replace(".", ":").replace(" ", "")
@@ -54,7 +55,7 @@ def gn(v):
 tab1, tab2 = st.tabs(["🔥 Detailed Heat Report", "📋 15-Min Register"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT
+# TAB 1: HEAT-BY-HEAT (8-FACTOR & MULTI-PROB)
 # ==========================================
 with tab1:
     st.markdown("### 1️⃣ Shift Meter Readings")
@@ -70,6 +71,7 @@ with tab1:
         nh = st.number_input("Total Heats in Shift", 1, 20, 4)
         hl = []
         bt = pt("08:00 AM")
+        
         for i in range(1, int(nh) + 1):
             with st.container(border=True):
                 st.subheader(f"🚩 Heat #{i}")
@@ -82,15 +84,15 @@ with tab1:
                 dtp = pt(tp_t, don, True)
                 dm = int((dtp-don).total_seconds()/60) if don and dtp else 115
                 
-                is_off = st.checkbox(f"Furnace OFF during H#{i}?", key=f"chk_off_{i}")
+                is_off = st.checkbox(f"OFF during H#{i}?", key=f"chk_off_{i}")
                 off_min = 0
                 if is_off:
                     o1, o2 = st.columns(2)
-                    off_f = pt(o1.text_input("OFF From", "", key=f"of_{i}"), don)
-                    off_t = pt(o2.text_input("OFF To", "", key=f"ot_{i}"), off_f, True)
-                    off_min = int((off_t - off_f).total_seconds()/60) if off_f and off_t else 0
+                    of_f = pt(o1.text_input("OFF From", "", key=f"of_{i}"), don)
+                    of_t = pt(o2.text_input("OFF To", "", key=f"ot_{i}"), of_f, True)
+                    off_min = int((of_t - of_f).total_seconds()/60) if of_f and of_t else 0
                 
-                with st.expander(f"⚠️ Multi-Problem Slots (H#{i})"):
+                with st.expander(f"⚠️ Problem Slots (Heat #{i})"):
                     p_c1, p_c2 = st.columns(2)
                     p1_t = p_c1.selectbox("Problem 1", list(LOAD_RULES.keys()), key=f"p1t_{i}")
                     p1_m = p_c2.text_input("Ranges 1", "", key=f"p1m_{i}", placeholder="08:10-08:20")
@@ -107,7 +109,7 @@ with tab1:
                     "off_min": off_min, "p1_min": p1_min, "p1_type": p1_t, "p2_min": p2_min, "p2_type": p2_t
                 })
 
-        if st.button("🔥 GENERATE DETAILED REPORT", type="primary", use_container_width=True):
+        if st.button("🔥 GENERATE 8-FACTOR REPORT", type="primary", use_container_width=True):
             k_scores = []
             for h in hl:
                 score = (h["ton"] * 10) + (h["dm"] * 0.5)
@@ -117,27 +119,29 @@ with tab1:
                 k_scores.append(max(score, 1.0))
             
             total_steps = t_kwh // 8
-            steps_per_heat = [int(round((s / sum(k_scores)) * total_steps)) for s in k_scores]
-            steps_per_heat[-1] += (total_steps - sum(steps_per_heat))
+            steps_per_heat = [int((s / sum(k_scores)) * total_steps) for s in k_scores]
+            
+            # Add missing steps to largest heat
+            missing = total_steps - sum(steps_per_heat)
+            steps_per_heat[steps_per_heat.index(max(steps_per_heat))] += missing
             
             copy_txt, rep_table = "", []
             for i, h in enumerate(hl):
                 hk = steps_per_heat[i] * 8
+                if i == len(hl) - 1: hk += (t_kwh % 8) # Remainder logic
+                
                 hv = int(hk / random.uniform(0.985, 0.998))
                 pf = round(hk/hv, 3)
                 dur = f"{h['dm']//60}h {h['dm']%60}m"
                 
                 rep_table.append({"Heat": f"#{h['no']}", "ON": h['on'], "TAP": h['tap'], "kWh": hk, "PF": f"{pf:.3f}"})
-                copy_txt += (f"--- Heat #{h['no']} ---\nHeat ON Time     : {h['on']}\nHeat Taping Time : {h['tap']}\nTotal Time       : {dur}\nMelting Ton      : {h['ton']} T\nKwh units        : {hk}\nKvah units       : {hv}\nPf.              : {pf:.3f}\n")
-                if h["off_min"] > 0: copy_txt += f"OFF Duration     : {int(h['off_min'])} min\n"
-                if h["p1_min"] > 0: copy_txt += f"Issue 1          : {h['p1_type']} ({int(h['p1_min'])}m)\n"
-                copy_txt += "\n"
+                copy_txt += (f"--- Heat #{h['no']} ---\nHeat ON Time     : {h['on']}\nHeat Taping Time : {h['tap']}\nTotal Time       : {dur}\nMelting Ton      : {h['ton']} T\nKwh units        : {hk}\nKvah units       : {hv}\nPf.              : {pf:.3f}\n\n")
             
             st.dataframe(pd.DataFrame(rep_table), use_container_width=True, hide_index=True)
             st.code(copy_txt.strip(), language=None)
 
 # ==========================================
-# TAB 2: REGISTER
+# TAB 2: REGISTER (STRICT 3476 CAP)
 # ==========================================
 with tab2:
     st.markdown("### 📋 15-Min Advanced Register")
@@ -146,7 +150,7 @@ with tab2:
     te4, re4 = c_m2.text_input("Shift End Time", "06:00 AM"), gn(c_m2.text_input("End kVAh", "250534412"))
     act_diff = re4 - rs4
     st.markdown(f"**Units to Distribute:** :blue[{act_diff:,}]")
-    user_verify = gn(st.text_input("📊 Cross Match - Verify Total", str(act_diff)))
+    user_verify = gn(st.text_input("📊 Verify Total Units", str(act_diff)))
     
     ds = pt(ts4)
     de = pt(te4, ds, True) if ds else None
@@ -171,19 +175,22 @@ with tab2:
             
             for s in sl:
                 for f_data, side in [(fa, "a"), (fb, "b")]:
-                    for r_s, r_e in parse_ranges(f_data["tap"], ds):
-                        if s["s"] < r_e and s["e"] > r_s:
-                            if side == "a": s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
-                            else: s["fb_kw"], s["fb_lab"] = 1500, "Tapping"
+                    # Check Problem
                     for r_s, r_e in parse_ranges(f_data["p_time"], ds):
                         if s["s"] < r_e and s["e"] > r_s:
                             ld = 0 if f_data["p_type"] in ["OFF", "Water Temp Trip"] else 1200
                             if side == "a": s["fa_kw"], s["fa_lab"] = ld, f_data["p_type"]
                             else: s["fb_kw"], s["fb_lab"] = ld, f_data["p_type"]
+                    # Check Tapping
+                    for r_s, r_e in parse_ranges(f_data["tap"], ds):
+                        if s["s"] < r_e and s["e"] > r_s:
+                            if side == "a" and s["fa_kw"] > 0: s["fa_kw"], s["fa_lab"] = 1500, "Tapping"
+                            if side == "b" and s["fb_kw"] > 0: s["fb_kw"], s["fb_lab"] = 1500, "Tapping"
 
             wts = [(s["fa_kw"] + s["fb_kw"]) * random.uniform(0.94, 1.06) for s in sl]
             units = [int(round((w/sum(wts))*act_diff)) for w in wts]
             
+            # Redistribution Loop (Strict 3476 Cap)
             for _ in range(8):
                 ex = 0
                 for i in range(len(units)):
@@ -202,5 +209,5 @@ with tab2:
                 curr_r += units[i]
                 rw.append({"Time": s["e"].strftime('%I:%M %p'), "A": s["fa_lab"], "B": s["fb_lab"], "kVAh": int(curr_r), "Unit": units[i]})
             st.dataframe(pd.DataFrame(rw), use_container_width=True, hide_index=True)
-            st.success("✅ Register Generated & Verified!")
-    
+            st.success("✅ Final Register Verified & Generated!")
+            
