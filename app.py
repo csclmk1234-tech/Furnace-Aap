@@ -2,8 +2,8 @@ import streamlit as st, random, pandas as pd
 from datetime import datetime, timedelta
 
 # Mobile Optimized View
-st.set_page_config(page_title="16.5T Furnace V53", page_icon="⚡", layout="centered")
-st.title("⚡ 16.5T Furnace Master Pro V53")
+st.set_page_config(page_title="16T Furnace V53", page_icon="⚡", layout="centered")
+st.title("⚡ 16T Furnace Master Pro V53")
 
 # Default Weights
 PROB_RULES = {
@@ -49,10 +49,10 @@ def gn(v):
 tab1, tab2 = st.tabs(["🔥 8-Factor Heat Report", "📋 15-Min Register"])
 
 # ==========================================
-# TAB 1: HEAT-BY-HEAT
+# TAB 1: HEAT-BY-HEAT (16 TON)
 # ==========================================
 with tab1:
-    st.markdown("### 1️⃣ Meter Readings Entry")
+    st.markdown("### 1️⃣ Meter Readings Entry (16T Furnace)")
     r1, r2 = st.columns(2)
     skw = gn(r1.text_input("Starting Reading kWh", "160944480"))
     skv = gn(r1.text_input("Starting Reading kVAh", "169767296"))
@@ -76,7 +76,7 @@ with tab1:
                 c1, c2, c3 = st.columns(3)
                 on_t = c1.text_input("ON Time", "08:00 AM", key=f"hon_{i}")
                 tp_t = c2.text_input("TAP Time", "10:00 AM", key=f"tp_t_{i}")
-                ton = c3.number_input("Melt Tons", 0.0, 25.0, 16.5, key=f"htn_{i}")
+                ton = c3.number_input("Melt Tons", 0.0, 25.0, 16.0, key=f"htn_{i}")
                 don = pt(on_t, bt)
                 
                 st.markdown("🔴 **Furnace Status**")
@@ -90,18 +90,18 @@ with tab1:
                 
                 # Multi-Problem Slots
                 with st.expander(f"⚠️ Multi-Problem Slots (H#{i})"):
-                    px1, px2, px3 = st.columns([2, 2, 1])
+                    px1, px2, px3 = st.columns((2, 2, 1))
                     p1t = px1.selectbox("Prob 1", list(PROB_RULES.keys()), key=f"p1t_{i}")
                     p1m = px2.text_input("Range 1", "", key=f"p1m_{i}")
                     p1k = px3.number_input("KW", 0, 7500, 1200 if "GLD" in p1t else 0, key=f"p1k_{i}")
                     
-                    px4, px5, px6 = st.columns([2, 2, 1])
+                    px4, px5, px6 = st.columns((2, 2, 1))
                     p2t = px4.selectbox("Prob 2", list(PROB_RULES.keys()), key=f"p2t_{i}")
                     p2m = px5.text_input("Range 2", "", key=f"p2m_{i}")
                     p2k = px6.number_input("KW ", 0, 7500, 0, key=f"p2k_{i}")
                     
-                    p1_min = sum([(r[1] - r[0]).total_seconds() / 60 for r in parse_ranges(p1m, don)])
-                    p2_min = sum([(r[1] - r[0]).total_seconds() / 60 for r in parse_ranges(p2m, don)])
+                    p1_min = sum([(end_t - start_t).total_seconds() / 60 for start_t, end_t in parse_ranges(p1m, don)])
+                    p2_min = sum([(end_t - start_t).total_seconds() / 60 for start_t, end_t in parse_ranges(p2m, don)])
                 
                 don_p = pt(on_t, bt)
                 dtp_p = pt(tp_t, don_p, True)
@@ -121,10 +121,10 @@ with tab1:
                 if h["p1_m"] > 0: base_score *= (h["p1_k"] / 5600)
                 if h["p2_m"] > 0: base_score *= (h["p2_k"] / 5600)
                 
-                # Sentring heat ke liye realistic PF (~0.88 - 0.91)
+                # Sentring heat ke liye PF 0.800 se 0.900 ke beech
                 if h["sentring"]:
                     kw_s = base_score * 0.45
-                    kv_s = base_score * 0.49
+                    kv_s = base_score * 0.55
                 else:
                     kw_s = base_score
                     kv_s = base_score
@@ -142,12 +142,28 @@ with tab1:
             kv_list = [int((s / kv_sum) * kv_steps) for s in kv_scores]
             for _ in range(kv_steps - sum(kv_list)): kv_list[kv_list.index(min(kv_list))] += 1
 
+            # Sentring PF clamp check (0.800 - 0.900) if multiple heats exist
+            if len(hl) > 1:
+                for i, h in enumerate(hl):
+                    if h["sentring"]:
+                        hk_temp = kw_list[i] * 8
+                        hv_temp = kv_list[i] * 8
+                        pf_temp = (hk_temp / hv_temp) if hv_temp > 0 else 0
+                        if pf_temp > 0.895 or pf_temp < 0.805:
+                            target_steps = max(1, int(round((hk_temp / 0.855) / 8)))
+                            diff_steps = target_steps - kv_list[i]
+                            for j in range(len(hl)):
+                                if j != i and not hl[j]["sentring"] and (kv_list[j] - diff_steps) >= 1:
+                                    kv_list[i] += diff_steps
+                                    kv_list[j] -= diff_steps
+                                    break
+
             copy_txt, rep_table = "", []
             for i, h in enumerate(hl):
                 hk, hv = kw_list[i] * 8, kv_list[i] * 8
                 if i == len(hl) - 1: hk += (t_kwh % 8); hv += (t_kvah % 8)
                 pf = round(hk / hv, 3) if hv > 0 else 0
-                
+
                 s_tag = " (Sentring Heat)" if h["sentring"] else ""
                 rep_table.append({
                     "Heat": f"#{h['no']}{s_tag}", 
@@ -162,16 +178,22 @@ with tab1:
             st.code(copy_txt.strip(), language=None)
 
 # ==========================================
-# TAB 2: REGISTER
+# TAB 2: 15-MIN REGISTER
 # ==========================================
 with tab2:
     st.markdown("### 📋 15-Min Advanced Register")
     c_m1, c_m2 = st.columns(2)
-    ts4, rs4 = c_m1.text_input("Reading Start Time (Reg)", "10:00 PM"), gn(c_m1.text_input("Starting kVAh Meter", "250513582"))
-    te4, re4 = c_m2.text_input("Reading End Time (Reg)", "06:00 AM"), gn(c_m2.text_input("End kVAh Meter", "250534412"))
+    ts4 = c_m1.text_input("Reading Start Time (Reg)", "10:00 PM")
+    rs4 = gn(c_m1.text_input("Starting kVAh Meter", "250513582"))
+    te4 = c_m2.text_input("Reading End Time (Reg)", "06:00 AM")
+    re4 = gn(c_m2.text_input("End kVAh Meter", "250534412"))
+    
     act_diff = re4 - rs4
     st.markdown(f"**Total Units:** :blue[{act_diff:,}]")
     user_verify = gn(st.text_input("📊 Cross Match Units Box", str(act_diff)))
+    
+    if user_verify != act_diff:
+        st.warning(f"⚠️ Cross Match Units ({user_verify}) aur Total Units ({act_diff}) match nahi kar rahe! Button dabane ke liye dono same rakhein.")
     
     ds, de = pt(ts4), pt(te4, pt(ts4), True)
     
@@ -190,25 +212,4 @@ with tab2:
 
             tap = st.text_input("🚰 Tapping Range(s)", "", key=f"reg_tp_{key}")
             is_off = st.checkbox(f"{label} was OFF?", key=f"reg_off_chk_{key}")
-            off_r = st.text_input("OFF Range(s)", "", key=f"reg_off_m_{key}") if is_off else ""
             
-            # Problem Slots
-            st.write("🛑 **Problem Slots**")
-            px1, px2, px3 = st.columns([2, 2, 1])
-            p1t = px1.selectbox("Slot 1", list(PROB_RULES.keys()), key=f"rpt1_{key}")
-            p1m = px2.text_input("Range 1", "", key=f"rpm1_{key}")
-            p1k = px3.number_input("KW", 0, 7500, 1200 if "GLD" in p1t else 0, key=f"rpk1_{key}")
-            
-            px4, px5, px6 = st.columns([2, 2, 1])
-            p2t = px4.selectbox("Slot 2", list(PROB_RULES.keys()), key=f"rpt2_{key}")
-            p2m = px5.text_input("Range 2", "", key=f"rpm2_{key}")
-            p2k = px6.number_input("KW ", 0, 7500, 0, key=f"rpk2_{key}")
-            
-            return {
-                "nkw": nkw, "is_sent": is_sent, "sent_r": sent_r, "sent_kw": sent_kw,
-                "tap": tap, "off": off_r, "probs": [(p1t, p1m, p1k), (p2t, p2m, p2k)]
-            }
-
-    if ds and de:
-        fa, fb = f_ui("Furnace A", "a"), f_ui("Furnace B", "b")
-                
